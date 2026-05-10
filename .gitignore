@@ -14,9 +14,7 @@ uv.lock
 .env
 .dlt/secrets.toml
 
-# TLS certificates (generated locally)
-seed/tls/server.crt
-seed/tls/server.key
+seed/
 
 # Case description
 case-description-senior-data-engineer.pdf

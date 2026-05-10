@@ -1,10 +1,21 @@
 services:
   postgres:
     image: postgres:16
+    command: >
+      postgres
+      -c wal_level=logical
+      -c max_wal_senders=4
+      -c max_replication_slots=4
     environment:
       POSTGRES_PASSWORD: dev
+      POSTGRES_DB: aidn
     ports:
       - "5432:5432"
     volumes:
       - ./seed:/seed
       - ./seed/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aidn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10

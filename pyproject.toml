@@ -19,6 +19,7 @@ dev = [
     "pandas>=2.0",
     "jupyter>=1.0",
     "ipykernel>=6.0",
+    "mypy (>=2.0.0,<3.0.0)",
 ]
 
 

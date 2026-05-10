@@ -90,5 +90,10 @@ COPY providers        FROM '/seed/providers.csv'        CSV HEADER;
 COPY patients         FROM '/seed/patients.csv'         CSV HEADER;
 COPY appointments     FROM '/seed/appointments.csv'     CSV HEADER;
 COPY patient_consents FROM '/seed/patient_consents.csv' CSV HEADER;
+
+-- CDC infrastructure (logical replication)
+ALTER TABLE appointments REPLICA IDENTITY FULL;
+-- providers uses REPLICA IDENTITY DEFAULT (provider_id is a PK; DEFAULT is sufficient)
+CREATE PUBLICATION aidn_cdc_pub FOR TABLE appointments, providers;
 """)
 print("seed/ generated")

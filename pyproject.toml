@@ -1,0 +1,31 @@
+[project]
+name = "senior-data-engineer-aidn"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Your Name",email = "you@example.com"}
+]
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "psycopg[binary] (>=3.3.4,<4.0.0)",
+    "duckdb (>=1.5.2,<2.0.0)",
+    "dlt[duckdb,postgres,sql_database] (>=1.4.0,<2.0.0)",
+    "python-json-logger (>=2.0.7,<3.0.0)",
+    "pydantic (>=2.1.0,<3.0.0)"
+]
+
+[dependency-groups]
+dev = [
+    "pandas>=2.0",
+    "jupyter>=1.0",
+    "ipykernel>=6.0",
+    "mypy (>=2.0.0,<3.0.0)",
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false

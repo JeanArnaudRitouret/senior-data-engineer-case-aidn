@@ -1,0 +1,23 @@
+.claude
+.cursor
+docs-claude
+docs-cursor
+
+# uv
+uv.lock
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+
+# Secrets and local config
+.env
+.dlt/secrets.toml
+
+seed/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Case description
+case-description-senior-data-engineer.pdf

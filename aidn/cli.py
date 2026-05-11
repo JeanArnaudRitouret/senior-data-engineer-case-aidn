@@ -26,9 +26,10 @@ class _Args:
     """Parsed CLI arguments.
 
     Attributes:
-        subcommand: Top-level subcommand name (e.g. ``"ingest"``).
+        subcommand: Top-level subcommand name (``"ingest"`` or ``"bootstrap"``).
         dry_run: When True, log targets without writing to the destination.
-        table: Restrict the run to this resource name; None means all resources.
+        table: Restrict the ingest run to this resource name; None means all resources.
+            Always None for the ``bootstrap`` subcommand.
     """
 
     subcommand: str
@@ -63,11 +64,22 @@ def parse_args(argv: Sequence[str] | None = None) -> _Args:
         help="Ingest a single resource by name.",
     )
 
+    bootstrap_p = sub.add_parser(
+        "bootstrap",
+        help="Create per-table replication slots and load the initial snapshot.",
+    )
+    bootstrap_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print CDC table names without creating slots or writing to the destination.",
+    )
+    bootstrap_p.set_defaults(table=None)
+
     ns = parser.parse_args(argv)
     return _Args(
         subcommand=ns.subcommand,
         dry_run=ns.dry_run,
-        table=ns.table,
+        table=getattr(ns, "table", None),
     )
 
 
@@ -81,6 +93,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.subcommand == "ingest":
         _run_ingest(dry_run=args.dry_run, table=args.table)
+    elif args.subcommand == "bootstrap":
+        _run_bootstrap(dry_run=args.dry_run)
 
 
 def _run_ingest(*, dry_run: bool, table: str | None) -> None:
@@ -113,3 +127,71 @@ def _run_ingest(*, dry_run: bool, table: str | None) -> None:
         source = source.with_resources(table)
 
     run_pipeline(source, settings=settings, run_logger=run_logger)
+
+
+def _run_bootstrap(*, dry_run: bool) -> None:
+    """Dispatch the bootstrap subcommand: create slots and load initial snapshots.
+
+    Args:
+        dry_run: When True, print CDC table names and return without touching
+            Postgres or the DuckDB destination.
+    """
+    from aidn.ingest.bootstrap import CDC_TABLES, bootstrap_table  # deferred
+
+    if dry_run:
+        for _, table_name in CDC_TABLES:
+            print(table_name)  # noqa: T201 — intentional user-facing dry-run output
+        return
+
+    from aidn.config import Settings  # deferred: avoids env-var load on --dry-run
+    from dlt.pipeline.exceptions import PipelineStepFailed
+
+    from aidn.ingest.pipeline import make_pipeline
+
+    settings = Settings()  # type: ignore[call-arg]
+    configure_logging(settings.log_level)
+    boot_logger = bind_run_id(_logger, str(uuid.uuid4()))
+
+    pipeline = make_pipeline(settings)
+
+    for slot_name, table_name in CDC_TABLES:
+        snapshot = bootstrap_table(slot_name, table_name, settings)
+        if snapshot is None:
+            boot_logger.info(
+                "bootstrap_noop table=%s reason=slot_exists",
+                table_name,
+            )
+            continue
+
+        try:
+            info = pipeline.run(snapshot)
+        except PipelineStepFailed as exc:
+            boot_logger.error(
+                "bootstrap_load_failed table=%s step=%s",
+                table_name,
+                exc.step,
+                exc_info=True,
+            )
+            raise
+
+        ids = info.loads_ids
+        if len(ids) == 0:
+            boot_logger.info(
+                "bootstrap_noop table=%s reason=no_new_rows",
+                table_name,
+            )
+        elif len(ids) == 1:
+            boot_logger.info(
+                "bootstrap_complete table=%s load_id=%s",
+                table_name,
+                ids[0],
+            )
+        else:
+            boot_logger.error(
+                "bootstrap_multi_package table=%s run_ids=%s",
+                table_name,
+                ids,
+            )
+            raise RuntimeError(
+                f"Bootstrap produced unexpected multi-package run for {table_name!r}: {ids}"
+            )

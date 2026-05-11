@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     Attributes:
         postgres_url: Source Postgres connection string; must use sslmode=require or stricter.
         postgres_repl_url: Replication connection string; same TLS requirement as postgres_url.
+        postgres_source_schema: Postgres schema containing the source tables (default: public).
         duckdb_path: Path to the DuckDB analytical store file.
         dlt_data_dir: Directory where dlt stores pipeline state and secrets.
         log_level: Python logging level name (default: INFO).
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
 
     postgres_url: PostgresDsn
     postgres_repl_url: PostgresDsn
+    postgres_source_schema: str = "public"
     duckdb_path: Path
     dlt_data_dir: Path
     log_level: str = "INFO"

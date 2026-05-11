@@ -16,10 +16,9 @@ class TestProvider:
             specialty="Cardiology",
             lsn=12345,
             deleted_ts=None,
-            is_deleted=False,
         )
         assert p.provider_id == "prov-1"
-        assert p.is_deleted is False
+        assert p.deleted_ts is None
 
     def test_specialty_nullable(self) -> None:
         p = Provider(
@@ -28,7 +27,6 @@ class TestProvider:
             specialty=None,
             lsn=1,
             deleted_ts=None,
-            is_deleted=False,
         )
         assert p.specialty is None
 
@@ -39,9 +37,7 @@ class TestProvider:
                 name="Test Provider A",
                 specialty=None,
                 lsn=1,
-                deleted_ts=None,
-                is_deleted=False,
-                unexpected_column="boom",
+                unexpected_column="boom",  # type: ignore[call-arg]
             )
 
     def test_lsn_must_be_int(self) -> None:
@@ -50,9 +46,7 @@ class TestProvider:
                 provider_id="prov-1",
                 name="Test Provider A",
                 specialty=None,
-                lsn="not-an-int",
-                deleted_ts=None,
-                is_deleted=False,
+                lsn="not-an-int",  # type: ignore[arg-type]
             )
 
     def test_frozen(self) -> None:
@@ -61,8 +55,6 @@ class TestProvider:
             name="Test Provider A",
             specialty=None,
             lsn=1,
-            deleted_ts=None,
-            is_deleted=False,
         )
         with pytest.raises(ValidationError):
             p.provider_id = "mutated"  # type: ignore[misc]
@@ -75,7 +67,7 @@ class TestPatient:
             name="Test Patient A",
             primary_provider_id="prov-1",
             postcode="0000",
-            updated_at=_TS,
+            updated_at=_TS,  # type: ignore[arg-type]
         )
         assert p.patient_id == "pat-1"
 
@@ -85,7 +77,7 @@ class TestPatient:
             name="Test Patient B",
             primary_provider_id=None,
             postcode=None,
-            updated_at=_TS,
+            updated_at=_TS,  # type: ignore[arg-type]
         )
         assert p.primary_provider_id is None
         assert p.postcode is None
@@ -97,8 +89,8 @@ class TestPatient:
                 name="Test Patient A",
                 primary_provider_id=None,
                 postcode=None,
-                updated_at=_TS,
-                unexpected_column="boom",
+                updated_at=_TS,  # type: ignore[arg-type]
+                unexpected_column="boom",  # type: ignore[call-arg]
             )
 
     def test_frozen(self) -> None:
@@ -107,7 +99,7 @@ class TestPatient:
             name="Test Patient A",
             primary_provider_id=None,
             postcode=None,
-            updated_at=_TS,
+            updated_at=_TS,  # type: ignore[arg-type]
         )
         with pytest.raises(ValidationError):
             p.patient_id = "mutated"  # type: ignore[misc]
@@ -120,16 +112,15 @@ class TestAppointment:
             appointment_id="appt-1",
             patient_id="pat-1",
             provider_id="prov-1",
-            scheduled_at=_TS,
+            scheduled_at=_TS,  # type: ignore[arg-type]
             status="confirmed",
-            event_timestamp=_TS,
-            ingested_at=_TS,
+            event_timestamp=_TS,  # type: ignore[arg-type]
+            ingested_at=_TS,  # type: ignore[arg-type]
             lsn=99,
             deleted_ts=None,
-            is_deleted=False,
         )
         assert a.event_id == "evt-1"
-        assert a.is_deleted is False
+        assert a.deleted_ts is None
 
     def test_deleted_row(self) -> None:
         a = Appointment(
@@ -137,15 +128,13 @@ class TestAppointment:
             appointment_id="appt-2",
             patient_id="pat-1",
             provider_id="prov-1",
-            scheduled_at=_TS,
+            scheduled_at=_TS,  # type: ignore[arg-type]
             status="cancelled",
-            event_timestamp=_TS,
-            ingested_at=_TS,
+            event_timestamp=_TS,  # type: ignore[arg-type]
+            ingested_at=_TS,  # type: ignore[arg-type]
             lsn=100,
-            deleted_ts=_TS,
-            is_deleted=True,
+            deleted_ts=_TS,  # type: ignore[arg-type]
         )
-        assert a.is_deleted is True
         assert a.deleted_ts is not None
 
     def test_extra_key_raises(self) -> None:
@@ -155,14 +144,13 @@ class TestAppointment:
                 appointment_id="appt-1",
                 patient_id="pat-1",
                 provider_id="prov-1",
-                scheduled_at=_TS,
+                scheduled_at=_TS,  # type: ignore[arg-type]
                 status="confirmed",
-                event_timestamp=_TS,
-                ingested_at=_TS,
+                event_timestamp=_TS,  # type: ignore[arg-type]
+                ingested_at=_TS,  # type: ignore[arg-type]
                 lsn=1,
                 deleted_ts=None,
-                is_deleted=False,
-                unexpected_column="boom",
+                unexpected_column="boom",  # type: ignore[call-arg]
             )
 
     def test_lsn_must_be_int(self) -> None:
@@ -172,13 +160,11 @@ class TestAppointment:
                 appointment_id="appt-1",
                 patient_id="pat-1",
                 provider_id="prov-1",
-                scheduled_at=_TS,
+                scheduled_at=_TS,  # type: ignore[arg-type]
                 status="confirmed",
-                event_timestamp=_TS,
-                ingested_at=_TS,
-                lsn="not-an-int",
-                deleted_ts=None,
-                is_deleted=False,
+                event_timestamp=_TS,  # type: ignore[arg-type]
+                ingested_at=_TS,  # type: ignore[arg-type]
+                lsn="not-an-int",  # type: ignore[arg-type]
             )
 
     def test_frozen(self) -> None:
@@ -187,13 +173,11 @@ class TestAppointment:
             appointment_id="appt-1",
             patient_id="pat-1",
             provider_id="prov-1",
-            scheduled_at=_TS,
+            scheduled_at=_TS,  # type: ignore[arg-type]
             status="confirmed",
-            event_timestamp=_TS,
-            ingested_at=_TS,
+            event_timestamp=_TS,  # type: ignore[arg-type]
+            ingested_at=_TS,  # type: ignore[arg-type]
             lsn=1,
-            deleted_ts=None,
-            is_deleted=False,
         )
         with pytest.raises(ValidationError):
             a.event_id = "mutated"  # type: ignore[misc]
@@ -217,7 +201,7 @@ class TestPatientConsent:
                 consent_research=True,
                 consent_marketing=False,
                 consent_partner_share=False,
-                unexpected_column="boom",
+                unexpected_column="boom",  # type: ignore[call-arg]
             )
 
     def test_frozen(self) -> None:

@@ -109,6 +109,20 @@ def test_seeded_rows_visible_after_bootstrap(
             f"Expected 2 committed _dlt_loads packages, got {load_rows[0]}"
         )
 
+        # CDC columns must be present immediately after bootstrap — pre-declared
+        # on the snapshot resource so the schema is stable before any WAL event flows.
+        for table_name in expected:
+            describe = conn.execute(
+                f"DESCRIBE raw.{table_name}"  # noqa: S608
+            ).fetchall()
+            col_names = {row[0] for row in describe}
+            assert "lsn" in col_names, (
+                f"raw.{table_name} missing lsn column after bootstrap"
+            )
+            assert "deleted_ts" in col_names, (
+                f"raw.{table_name} missing deleted_ts column after bootstrap"
+            )
+
 
 def test_bootstrap_idempotent(bootstrap_settings: Settings) -> None:
     """Second bootstrap call must no-op: no new _dlt_loads rows created."""

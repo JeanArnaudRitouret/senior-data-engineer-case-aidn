@@ -32,7 +32,7 @@ class Provider(BaseModel):
     provider_id: str
     name: str
     specialty: str | None
-    lsn: int
+    lsn: int | None = None
     deleted_ts: datetime | None = None
 
 
@@ -87,7 +87,7 @@ class Appointment(BaseModel):
     status: str
     event_timestamp: datetime
     ingested_at: datetime
-    lsn: int
+    lsn: int | None = None
     deleted_ts: datetime | None = None
 
 

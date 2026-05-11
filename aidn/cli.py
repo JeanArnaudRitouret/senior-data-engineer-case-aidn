@@ -139,7 +139,7 @@ def _run_bootstrap(*, dry_run: bool) -> None:
     from aidn.ingest.bootstrap import CDC_TABLES, bootstrap_table  # deferred
 
     if dry_run:
-        for _, table_name in CDC_TABLES:
+        for _, table_name, _pk in CDC_TABLES:
             print(table_name)  # noqa: T201 — intentional user-facing dry-run output
         return
 
@@ -154,8 +154,8 @@ def _run_bootstrap(*, dry_run: bool) -> None:
 
     pipeline = make_pipeline(settings)
 
-    for slot_name, table_name in CDC_TABLES:
-        snapshot = bootstrap_table(slot_name, table_name, settings)
+    for slot_name, table_name, primary_key in CDC_TABLES:
+        snapshot = bootstrap_table(slot_name, table_name, primary_key, settings)
         if snapshot is None:
             boot_logger.info(
                 "bootstrap_noop table=%s reason=slot_exists",

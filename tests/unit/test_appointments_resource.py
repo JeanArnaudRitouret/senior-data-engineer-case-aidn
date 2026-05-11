@@ -43,15 +43,21 @@ def test_appointments_apply_hints_lsn_declared() -> None:
     assert cols["lsn"]["data_type"] == "bigint"
 
 
-def test_appointments_dedup_sort_on_ingested_at_not_event_timestamp() -> None:
-    """dedup_sort is set via column hint on ingested_at, not event_timestamp, and not as resource kwarg."""
+def test_appointments_no_static_dedup_sort_column() -> None:
+    """Our column hints must declare zero dedup_sort columns.
+
+    pg_replication adds dedup_sort to lsn dynamically during schema evolution.
+    Declaring a second dedup_sort (e.g. on ingested_at) in apply_hints causes
+    SchemaCorruptedException on the second pipeline run.
+    """
     resource = _make_resource()
     cols: dict[str, Any] = resource.columns
-    # ingested_at is the correct tie-break for at-least-once dedup on event_id
-    assert "ingested_at" in cols
-    assert cols["ingested_at"].get("dedup_sort") == "desc"
-    # event_timestamp must NOT carry dedup_sort — byte-identical re-emissions share it
-    assert cols.get("event_timestamp", {}).get("dedup_sort") is None
+    for col_name, col_hints in cols.items():
+        assert col_hints.get("dedup_sort") is None, (
+            f"Column {col_name!r} has dedup_sort set in static hints — "
+            "pg_replication already sets dedup_sort on lsn dynamically; "
+            "a second dedup_sort column causes SchemaCorruptedException."
+        )
 
 
 def test_appointments_deleted_ts_absent_on_insert_validates_as_live() -> None:

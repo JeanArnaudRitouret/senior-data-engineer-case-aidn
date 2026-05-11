@@ -30,12 +30,13 @@ def test_bootstrap_snapshot_declares_cdc_columns() -> None:
         ),
     ):
         result = bootstrap_table(
-            "aidn_providers_slot", "providers", _mock_settings()
+            "aidn_providers_slot", "providers", "provider_id", "aidn_providers_pub", _mock_settings()
         )
 
     assert result is mock_resource
-    # Confirm apply_hints was called with the CDC column declarations
-    mock_resource.apply_hints.assert_called_once_with(columns=_SNAPSHOT_CDC_COLUMNS)
+    mock_resource.apply_hints.assert_called_once_with(
+        primary_key="provider_id", columns=_SNAPSHOT_CDC_COLUMNS
+    )
     assert "lsn" in _SNAPSHOT_CDC_COLUMNS
     assert "deleted_ts" in _SNAPSHOT_CDC_COLUMNS
 
@@ -51,7 +52,7 @@ def test_bootstrap_snapshot_applies_validator() -> None:
         ),
     ):
         bootstrap_table(
-            "aidn_providers_slot", "providers", _mock_settings()
+            "aidn_providers_slot", "providers", "provider_id", "aidn_providers_pub", _mock_settings()
         )
 
     mock_resource.add_map.assert_called_once_with(TABLE_VALIDATORS["providers"])
@@ -70,6 +71,8 @@ def test_bootstrap_snapshot_applies_validator_appointments() -> None:
         bootstrap_table(
             "aidn_appointments_slot",
             "appointments",
+            "event_id",
+            "aidn_appointments_pub",
             _mock_settings(),
         )
 
@@ -84,7 +87,7 @@ def test_bootstrap_skip_when_slot_exists_does_not_apply_hints() -> None:
         patch("aidn.ingest.bootstrap.init_replication") as mock_init,
     ):
         result = bootstrap_table(
-            "aidn_providers_slot", "providers", _mock_settings()
+            "aidn_providers_slot", "providers", "provider_id", "aidn_providers_pub", _mock_settings()
         )
 
     assert result is None

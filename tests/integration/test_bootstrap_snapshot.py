@@ -90,6 +90,8 @@ def test_seeded_rows_visible_after_bootstrap(
         "providers": _csv_unique_count(_SEED_DIR / "providers.csv", "provider_id"),
         # appointments: merge by event_id — 29 duplicate event_ids in seed; count is unique PKs
         "appointments": _csv_unique_count(_SEED_DIR / "appointments.csv", "event_id"),
+        # patients: append disposition (lsn=NULL on snapshot rows) — count is total CSV rows
+        "patients": _csv_row_count(_SEED_DIR / "patients.csv"),
     }
 
     pipeline = make_pipeline(bootstrap_settings)
@@ -108,7 +110,7 @@ def test_seeded_rows_visible_after_bootstrap(
         )
         load_count += 1
 
-    assert load_count == 2
+    assert load_count == len(CDC_TABLES)
 
     db_path = str(bootstrap_settings.duckdb_path)
     with duckdb.connect(db_path, read_only=True) as conn:
@@ -125,8 +127,8 @@ def test_seeded_rows_visible_after_bootstrap(
             "SELECT count(*) FROM raw._dlt_loads WHERE status = 0"  # noqa: S608
         ).fetchone()
         assert load_rows is not None
-        assert load_rows[0] == 2, (
-            f"Expected 2 committed _dlt_loads packages, got {load_rows[0]}"
+        assert load_rows[0] == len(CDC_TABLES), (
+            f"Expected {len(CDC_TABLES)} committed _dlt_loads packages, got {load_rows[0]}"
         )
 
         # CDC columns must be present immediately after bootstrap — pre-declared
@@ -142,6 +144,41 @@ def test_seeded_rows_visible_after_bootstrap(
             assert "deleted_ts" in col_names, (
                 f"raw.{table_name} missing deleted_ts column after bootstrap"
             )
+
+
+def test_bootstrap_patients_snapshot_lands_all_rows(
+    bootstrap_settings: Settings,
+) -> None:
+    """All patient seed rows must land in raw.patients after bootstrap.
+
+    Regression guard for the name-strip bug: snapshot rows carry ``name`` which
+    Patient(extra="forbid") rejects.  Without the preprocessor every row is dropped
+    and raw.patients ends up empty despite a successful dlt load package.
+    """
+    expected = _csv_row_count(_SEED_DIR / "patients.csv")
+
+    patients_entry = next(
+        (slot, table, pk, pub)
+        for slot, table, pk, pub in CDC_TABLES
+        if table == "patients"
+    )
+    slot_name, table_name, primary_key, pub_name = patients_entry
+
+    pipeline = make_pipeline(bootstrap_settings)
+    snapshot = bootstrap_table(slot_name, table_name, primary_key, pub_name, bootstrap_settings)
+    assert snapshot is not None, (
+        "bootstrap_table returned None — slot already exists; "
+        "run 'make down && make up && make seed' to reset."
+    )
+    pipeline.run(snapshot)
+
+    with duckdb.connect(str(bootstrap_settings.duckdb_path), read_only=True) as conn:
+        actual = conn.execute("SELECT count(*) FROM raw.patients").fetchone()  # noqa: S608
+    assert actual is not None
+    assert actual[0] == expected, (
+        f"raw.patients: expected {expected} rows, got {actual[0]} — "
+        "likely caused by _strip_name not applied on the snapshot path"
+    )
 
 
 def test_bootstrap_idempotent(bootstrap_settings: Settings) -> None:

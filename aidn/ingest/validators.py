@@ -76,8 +76,9 @@ def _validate_patient(row: dict[str, Any]) -> Patient | None:
     return None to drop the row (dlt add_map drops None items).
     Tier 2 (any other Exception): log error with exc_info; re-raise.
 
-    PII: ``name`` and ``postcode`` are direct/quasi-identifiers and must never
-    appear in any log record. Only the pseudonymous ``patient_id`` key is logged.
+    PII: ``postcode`` is a quasi-identifier and must never appear in any log record.
+    ``name`` is dropped at the resource boundary and never reaches this validator.
+    Only the pseudonymous ``patient_id`` key is logged.
 
     Args:
         row: Raw dict from the sql_table incremental source.

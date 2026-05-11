@@ -37,6 +37,8 @@ class _TargetIds:
     second_event_id: str
     first_patient_id: str
     first_consent_patient_id: str
+    delete_patient_id: str
+    delete_consent_patient_id: str
 
 
 @dataclass
@@ -47,7 +49,7 @@ class MutationResult:
     mutation: str
     expected: str
     observed: str
-    result: str  # ✓ / ✗ / "suppressed — pass" / "deferred — pass"
+    result: str  # ✓ / ✗
 
 
 def _fetchone_str(
@@ -123,8 +125,10 @@ def _check_baseline(conn: duckdb.DuckDBPyConnection) -> str:
 def _read_target_ids(conn: duckdb.DuckDBPyConnection) -> _TargetIds:
     """Read mutation target row IDs from DuckDB to correlate with post-ingest results.
 
-    IDs are resolved with the same ORDER BY used in seed/cdc_smoke.sql so the
-    DuckDB-side lookups target exactly the rows that were mutated in Postgres.
+    IDs are resolved with the same ORDER BY / NOT LIKE guard used in seed/cdc_smoke.sql
+    so the DuckDB-side lookups target exactly the rows that were mutated in Postgres.
+    The NOT LIKE 'SMOKE_%' guard ensures pre-existing seed rows are selected regardless
+    of how SMOKE_* IDs sort relative to seed IDs.
 
     Args:
         conn: Open DuckDB connection.
@@ -135,28 +139,45 @@ def _read_target_ids(conn: duckdb.DuckDBPyConnection) -> _TargetIds:
     return _TargetIds(
         first_provider_id=_fetchone_str(
             conn,
-            "SELECT provider_id FROM raw.providers ORDER BY provider_id LIMIT 1",
+            "SELECT provider_id FROM raw.providers"
+            " WHERE provider_id NOT LIKE 'SMOKE_%' ORDER BY provider_id LIMIT 1",
         ),
         second_provider_id=_fetchone_str(
             conn,
-            "SELECT provider_id FROM raw.providers ORDER BY provider_id LIMIT 1 OFFSET 1",
+            "SELECT provider_id FROM raw.providers"
+            " WHERE provider_id NOT LIKE 'SMOKE_%' ORDER BY provider_id LIMIT 1 OFFSET 1",
         ),
         first_event_id=_fetchone_str(
             conn,
-            "SELECT event_id FROM raw.appointments ORDER BY event_id LIMIT 1",
+            "SELECT event_id FROM raw.appointments"
+            " WHERE event_id NOT LIKE 'SMOKE_%' ORDER BY event_id LIMIT 1",
         ),
         second_event_id=_fetchone_str(
             conn,
-            "SELECT event_id FROM raw.appointments ORDER BY event_id LIMIT 1 OFFSET 1",
+            "SELECT event_id FROM raw.appointments"
+            " WHERE event_id NOT LIKE 'SMOKE_%' ORDER BY event_id LIMIT 1 OFFSET 1",
         ),
         first_patient_id=_fetchone_str(
             conn,
-            "SELECT patient_id FROM raw.patients ORDER BY patient_id LIMIT 1",
+            "SELECT patient_id FROM raw.patients"
+            " WHERE patient_id NOT LIKE 'SMOKE_%' ORDER BY patient_id LIMIT 1",
         ),
         first_consent_patient_id=_fetchone_str(
             conn,
             "SELECT patient_id FROM raw.patient_consents"
-            " WHERE _dlt_valid_to IS NULL ORDER BY patient_id LIMIT 1",
+            " WHERE patient_id NOT LIKE 'SMOKE_%' AND _dlt_valid_to IS NULL"
+            " ORDER BY patient_id LIMIT 1",
+        ),
+        delete_patient_id=_fetchone_str(
+            conn,
+            "SELECT patient_id FROM raw.patients"
+            " WHERE patient_id NOT LIKE 'SMOKE_%' ORDER BY patient_id LIMIT 1 OFFSET 1",
+        ),
+        delete_consent_patient_id=_fetchone_str(
+            conn,
+            "SELECT patient_id FROM raw.patient_consents"
+            " WHERE patient_id NOT LIKE 'SMOKE_%' AND _dlt_valid_to IS NULL"
+            " ORDER BY patient_id LIMIT 1 OFFSET 1",
         ),
     )
 
@@ -293,17 +314,17 @@ def _check_appointments(
 def _check_patients(
     conn: duckdb.DuckDBPyConnection, ids: _TargetIds
 ) -> list[MutationResult]:
-    """Assert INSERT and UPDATE propagation for raw.patients; report DELETE as suppressed.
+    """Assert INSERT, UPDATE, and DELETE propagation for raw.patients.
 
-    DELETE is not asserted: sql_table polling cannot capture hard deletes, and the
-    data contract forbids patient deletes outside the Phase 5.5 erasure path.
+    DELETE is asserted as a tombstone row: pg_replication CDC with REPLICA IDENTITY FULL
+    emits DELETE WAL events; the resource writes a row with deleted_ts IS NOT NULL.
 
     Args:
         conn: Open DuckDB connection.
         ids: Pre-mutation target row identifiers.
 
     Returns:
-        Three MutationResult entries (INSERT / UPDATE / DELETE-suppressed).
+        Three MutationResult entries (INSERT / UPDATE / DELETE).
     """
     ins_n = _fetchone_int(
         conn, "SELECT count(*) FROM raw.patients WHERE patient_id='SMOKE_PAT_INS'"
@@ -313,27 +334,33 @@ def _check_patients(
         "SELECT count(*) FROM raw.patients WHERE patient_id=? AND postcode='0000'",
         [ids.first_patient_id],
     )
+    del_n = _fetchone_int(
+        conn,
+        "SELECT count(*) FROM raw.patients WHERE patient_id=? AND deleted_ts IS NOT NULL",
+        [ids.delete_patient_id],
+    )
     return [
         MutationResult("patients", "INSERT", "count>=1", f"count={ins_n}", _TICK if ins_n >= 1 else _CROSS),
         MutationResult("patients", "UPDATE", "new SCD2 row postcode=0000", f"rows_postcode_0000={upd_n}", _TICK if upd_n >= 1 else _CROSS),
-        MutationResult("patients", "DELETE", "n/a", "n/a", "suppressed — pass"),
+        MutationResult("patients", "DELETE", "deleted_ts IS NOT NULL", f"rows_with_deleted_ts={del_n}", _TICK if del_n >= 1 else _CROSS),
     ]
 
 
 def _check_patient_consents(
     conn: duckdb.DuckDBPyConnection, ids: _TargetIds
 ) -> list[MutationResult]:
-    """Assert INSERT and UPDATE SCD2 propagation for raw.patient_consents.
+    """Assert INSERT, UPDATE, and DELETE SCD2 propagation for raw.patient_consents.
 
-    DELETE is not asserted: GDPR erasure requires a separate delete-insert resource
-    (dlt-standards Rule 5) deferred to Phase 5.5.
+    DELETE is asserted as Regime B absent-PK retirement: the prior open row must have
+    _dlt_valid_to set and no new open row opened. GDPR erasure (purging the row entirely)
+    remains deferred to Phase 5.5 via a separate delete-insert resource per dlt-standards Rule 5.
 
     Args:
         conn: Open DuckDB connection.
         ids: Pre-mutation target row identifiers.
 
     Returns:
-        Three MutationResult entries (INSERT / UPDATE / DELETE-deferred).
+        Three MutationResult entries (INSERT / UPDATE / DELETE).
     """
     ins_n = _fetchone_int(
         conn,
@@ -353,10 +380,23 @@ def _check_patient_consents(
         [ids.first_consent_patient_id],
     )
     upd_ok = closed_n >= 1 and new_n == 1
+    closed_del_n = _fetchone_int(
+        conn,
+        "SELECT count(*) FROM raw.patient_consents"
+        " WHERE patient_id=? AND _dlt_valid_to IS NOT NULL",
+        [ids.delete_consent_patient_id],
+    )
+    open_del_n = _fetchone_int(
+        conn,
+        "SELECT count(*) FROM raw.patient_consents"
+        " WHERE patient_id=? AND _dlt_valid_to IS NULL",
+        [ids.delete_consent_patient_id],
+    )
+    del_ok = closed_del_n >= 1 and open_del_n == 0
     return [
         MutationResult("patient_consents", "INSERT", "_dlt_valid_to IS NULL count=1", f"count={ins_n}", _TICK if ins_n == 1 else _CROSS),
         MutationResult("patient_consents", "UPDATE", "prior row closed + new row opened", f"closed={closed_n} new_current={new_n}", _TICK if upd_ok else _CROSS),
-        MutationResult("patient_consents", "DELETE", "n/a", "n/a", "deferred — pass"),
+        MutationResult("patient_consents", "DELETE", "prior row closed; no open row", f"closed={closed_del_n} open={open_del_n}", _TICK if del_ok else _CROSS),
     ]
 
 

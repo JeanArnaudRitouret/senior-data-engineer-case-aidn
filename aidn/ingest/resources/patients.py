@@ -1,59 +1,76 @@
-"""Incremental append resource for the patients table — SQL polling via sql_table (Q21 + Q22).
+"""CDC resource for the patients table — pg_replication merge; hard_delete on deleted_ts overridden to False.
 
-No hard_delete, no is_deleted, no pk_snapshots: patients accepts no row-level
-deletes in normal pipeline operation. The sole removal path is the Phase 5.5
-GDPR Art. 17 erasure sweep (anonymize PII; retain patient_id). See Q21 + Q22.
+Slot ``aidn_patients_slot`` is owned by ``aidn/ingest/bootstrap.py``.
+This module consumes a pre-existing slot and must not call ``init_replication()``.
+
+``name`` (direct identifier) is stripped from WAL events before Pydantic validation,
+continuing the data-minimisation decision from the prior sql_table resource (Q40, P.2).
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
-from typing import Literal
+from typing import Any
 
-import dlt
-from dlt.common.schema.typing import TSchemaContractDict
 from dlt.extract import DltResource
-from dlt.sources.sql_database import sql_table
+from dlt.sources.credentials import ConnectionStringCredentials
+
+from pg_replication import replication_resource
 
 from aidn.config import Settings
+from aidn.ingest.preprocess import _strip_name
 from aidn.ingest.validators import _validate_patient
 
-# Five-minute lag tolerates clock skew and late-arriving rows under at-least-once
-# delivery; keeps the cursor below the leading edge of the source write window.
-# dlt Incremental.lag expects float (seconds), not timedelta.
-_INCREMENTAL_LAG: timedelta = timedelta(minutes=5)
-_WRITE_DISPOSITION: Literal["append"] = "append"
-_SCHEMA_CONTRACT: TSchemaContractDict = {"columns": "freeze"}
+_SLOT_NAME: str = "aidn_patients_slot"
+_PUB_NAME: str = "aidn_patients_pub"
+
+# Column hints applied to the patients resource:
+# - lsn, deleted_ts: CDC columns added by pg_replication absent from the source schema;
+#   declared explicitly so schema_contract freeze accepts them on first run.
+_COLUMN_HINTS: dict[str, Any] = {
+    "lsn": {"data_type": "bigint", "nullable": True},
+    "deleted_ts": {
+        # Override pg_replication's default hard_delete=True (Q36): preserve the
+        # raw row even when the source row is physically deleted; deleted_ts IS
+        # NOT NULL is the sole delete signal at the raw boundary.
+        "hard_delete": False,
+        "data_type": "timestamp",
+        "nullable": True,
+    },
+}
+
 
 
 def patients_resource(settings: Settings) -> DltResource:
-    """Return a configured incremental append dlt resource for the patients table.
+    """Return a configured CDC dlt resource for the patients table.
 
-    Uses ``sql_table`` (SQLAlchemy SQL polling) with an incremental cursor on
-    ``updated_at``. ``write_disposition`` is ``append`` — the source emits
-    SCD2 history natively (multiple rows per ``patient_id``, ordered by
-    ``updated_at``). Merging would destroy that history; append retains it
-    per Q21 + dlt-standards Rule 1.
+    Configures the pg_replication resource with:
+    - ``write_disposition="merge"`` on ``lsn`` (WAL-unique per event; at-least-once dedup)
+    - ``schema_contract={"columns": "freeze"}`` (unexpected source columns raise)
+    - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete; Q36)
 
-    No ``hard_delete``, no ``is_deleted``, no ``pk_snapshots``: patients has
-    no row-level delete path in normal pipeline operation (Q22). The Phase 5.5
-    GDPR erasure sweep is the sole removal path.
+    ``name`` (direct identifier) is stripped before Pydantic validation so it never
+    enters raw — mirroring the ``excluded_columns=["name"]`` behaviour of the prior
+    sql_table resource (Q40, P.2).
 
     Args:
-        settings: Runtime settings supplying the Postgres connection URL.
+        settings: Runtime settings supplying the replication connection URL.
 
     Returns:
         DltResource ready to be included in an ``aidn_source()`` factory.
     """
-    resource: DltResource = sql_table(
-        credentials=str(settings.postgres_url),
-        table="patients",
-        schema=settings.postgres_source_schema,
-        incremental=dlt.sources.incremental("updated_at", lag=_INCREMENTAL_LAG.total_seconds()),
+    creds = ConnectionStringCredentials(str(settings.postgres_repl_url))
+    resource: DltResource = replication_resource(
+        slot_name=_SLOT_NAME,
+        pub_name=_PUB_NAME,
+        credentials=creds,
     )
     resource.apply_hints(
-        write_disposition=_WRITE_DISPOSITION,
-        schema_contract=_SCHEMA_CONTRACT,
+        table_name="patients",
+        write_disposition="merge",
+        primary_key="lsn",
+        schema_contract={"columns": "freeze"},
+        columns=_COLUMN_HINTS,
     )
+    resource.add_map(_strip_name)
     resource.add_map(_validate_patient)
     return resource

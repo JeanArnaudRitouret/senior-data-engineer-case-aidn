@@ -97,7 +97,11 @@ ALTER TABLE appointments REPLICA IDENTITY FULL;
 -- non-nullable fields in the Pydantic model (name, specialty) cause ValidationError and
 -- the DELETE row is dropped before reaching raw.providers. FULL sends the entire old row.
 ALTER TABLE providers REPLICA IDENTITY FULL;
+-- REPLICA IDENTITY FULL required on patients: no source PK, so DEFAULT identity sends no
+-- identifying columns on UPDATE/DELETE -- WAL events are silently dropped without FULL.
+ALTER TABLE patients REPLICA IDENTITY FULL;
 CREATE PUBLICATION aidn_providers_pub FOR TABLE providers;
 CREATE PUBLICATION aidn_appointments_pub FOR TABLE appointments;
+CREATE PUBLICATION aidn_patients_pub FOR TABLE patients;
 """)
 print("seed/ generated")

@@ -1,5 +1,6 @@
 .claude
 .cursor
+.vscode/
 docs-claude
 docs-cursor
 
@@ -12,12 +13,22 @@ uv.lock
 
 # Secrets and local config
 .env
-.dlt/secrets.toml
+.dlt/
 
 seed/
+
+# Python bytecode
+__pycache__/
+*.pyc
 
 # Jupyter
 .ipynb_checkpoints/
 
 # Case description
 case-description-senior-data-engineer.pdf
+
+# dbt
+dbt_aidn/target/
+dbt_aidn/dbt_packages/
+dbt_aidn/logs/
+dbt_aidn/.user.yml

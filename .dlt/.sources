@@ -1,0 +1,32 @@
+engine_version: 1
+sources:
+  pg_replication:
+    is_dirty: false
+    last_commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+    last_commit_timestamp: '2026-03-30T21:43:02+02:00'
+    files:
+      pg_replication/decoders.py:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: 71ffbdcbd4223107ca4a26ae8c7f4f0e38134f83
+        sha3_256: bd9ad292bf61ad682260529d1a5afdaf0b8243d93ce2643c714928f0ab0c940e
+      pg_replication/__init__.py:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: ef2e2c734db1819cbf6217a094f0d8ad9f0910a2
+        sha3_256: 6229db1a78066ec7583199dec1e5b82fd13957931ca32ba175e980dd76eb3d47
+      pg_replication/README.md:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: 3f669160be076a1b095c63950338defd54a9f9a8
+        sha3_256: 8ea60b2d8925388ad58f291b53087ca60f277015a23b72b18177b47dc08241bf
+      pg_replication/exceptions.py:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: 2b2642777cd0ee58322721c5d0b88aa0b69e8fe3
+        sha3_256: 921d9911a62a41485eac6450483785fb4545d13b0744964936b65a54f2b9ec3f
+      pg_replication/schema_types.py:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: c199407c659b0f890b0889bb6bc8cbb112bc6ea7
+        sha3_256: e5492a0494c8848422df020452571c7800247a4f58113986bc4df04aa7798a27
+      pg_replication/helpers.py:
+        commit_sha: 75b3ec17eab99d0079d9f61b7f47fc8b899a5738
+        git_sha: 0c300ed00b52bce7eb4219bd096053727dbf3ae6
+        sha3_256: 3df4b796a18b7a5fe1ecae2eb1070b64eae0f7168121f8aa8326bc5c9c1f0ef8
+    dlt_version_constraint: '>=1.0.0'

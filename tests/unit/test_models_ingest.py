@@ -64,7 +64,6 @@ class TestPatient:
     def test_happy_path(self) -> None:
         p = Patient(
             patient_id="pat-1",
-            name="Test Patient A",
             primary_provider_id="prov-1",
             postcode="0000",
             updated_at=_TS,  # type: ignore[arg-type]
@@ -74,7 +73,6 @@ class TestPatient:
     def test_nullable_fields(self) -> None:
         p = Patient(
             patient_id="pat-2",
-            name="Test Patient B",
             primary_provider_id=None,
             postcode=None,
             updated_at=_TS,  # type: ignore[arg-type]
@@ -86,7 +84,6 @@ class TestPatient:
         with pytest.raises(ValidationError):
             Patient(
                 patient_id="pat-1",
-                name="Test Patient A",
                 primary_provider_id=None,
                 postcode=None,
                 updated_at=_TS,  # type: ignore[arg-type]
@@ -96,7 +93,6 @@ class TestPatient:
     def test_frozen(self) -> None:
         p = Patient(
             patient_id="pat-1",
-            name="Test Patient A",
             primary_provider_id=None,
             postcode=None,
             updated_at=_TS,  # type: ignore[arg-type]
@@ -213,3 +209,68 @@ class TestPatientConsent:
         )
         with pytest.raises(ValidationError):
             c.patient_id = "mutated"  # type: ignore[misc]
+
+
+# ---------------------------------------------------------------------------
+# Contract test — pg_lsn wire type (item 1.27b)
+# ---------------------------------------------------------------------------
+
+
+def test_pg_replication_lsn_type_matches_contract() -> None:
+    """lsn must be int at the dlt/raw boundary — pg_lsn string format is rejected.
+
+    data_contract.md records lsn as BIGINT (int in Python); dlt's pg_replication
+    helpers.py converts the pg_lsn hex string to int before yielding a row.  If
+    that conversion were ever bypassed, the Pydantic model would catch the raw
+    pg_lsn string format ('0/163D8F0') and raise ValidationError — preventing a
+    string value from landing in raw.*
+
+    This test pins that invariant for both CDC-sourced models.
+    """
+    _TS = "2024-01-15T10:00:00Z"
+
+    # int lsn passes validation for Provider
+    p = Provider(
+        provider_id="prov-contract",
+        name="Contract Test",
+        specialty=None,
+        lsn=17022192,  # 0x103D8F0 in decimal — a valid pg_lsn-derived int
+    )
+    assert isinstance(p.lsn, int)
+
+    # int lsn passes validation for Appointment
+    a = Appointment(
+        event_id="evt-contract",
+        appointment_id="appt-contract",
+        patient_id="pat-contract",
+        provider_id="prov-contract",
+        scheduled_at=_TS,  # type: ignore[arg-type]
+        status="scheduled",
+        event_timestamp=_TS,  # type: ignore[arg-type]
+        ingested_at=_TS,  # type: ignore[arg-type]
+        lsn=17022192,
+    )
+    assert isinstance(a.lsn, int)
+
+    # Raw pg_lsn string format must be rejected for Provider
+    with pytest.raises(ValidationError):
+        Provider(
+            provider_id="prov-contract",
+            name="Contract Test",
+            specialty=None,
+            lsn="0/103D8F0",  # type: ignore[arg-type]  # raw pg_lsn hex string
+        )
+
+    # Raw pg_lsn string format must be rejected for Appointment
+    with pytest.raises(ValidationError):
+        Appointment(
+            event_id="evt-contract",
+            appointment_id="appt-contract",
+            patient_id="pat-contract",
+            provider_id="prov-contract",
+            scheduled_at=_TS,  # type: ignore[arg-type]
+            status="scheduled",
+            event_timestamp=_TS,  # type: ignore[arg-type]
+            ingested_at=_TS,  # type: ignore[arg-type]
+            lsn="0/103D8F0",  # type: ignore[arg-type]  # raw pg_lsn hex string
+        )

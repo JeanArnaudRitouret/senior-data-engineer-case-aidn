@@ -141,8 +141,6 @@ sources:
               - not_null
           - name: lsn
             description: WAL log sequence number — merge key; NULL on bootstrap snapshot rows.
-            tests:
-              - not_null
           - name: consent_research
             description: Patient opted in to research use. NULL on DELETE events.
           - name: consent_marketing

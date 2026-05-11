@@ -1,0 +1,8 @@
+aidn:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../aidn.duckdb
+      schema: main
+      threads: 4

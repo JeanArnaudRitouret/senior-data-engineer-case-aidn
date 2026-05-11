@@ -1,0 +1,25 @@
+name: dbt_aidn
+version: '1.0.0'
+config-version: 2
+
+profile: aidn
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+snapshot-paths: ["snapshots"]
+docs-paths: ["docs"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  dbt_aidn:
+    staging:
+      +schema: staging
+      +materialized: view
+

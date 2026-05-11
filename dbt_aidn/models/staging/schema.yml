@@ -46,7 +46,7 @@ models:
         description: dlt row hash.
 
   - name: stg_patients
-    description: "1:1 typed projection of raw.patients; PII passes through staging, suppressed at marts."
+    description: "1:1 typed projection of raw.patients; name excluded at ingest (GDPR Art. 5(1)(c)); postcode anonymised in Phase 5.5."
     columns:
       - name: patient_id
         description: Pseudonymous patient key.
@@ -54,12 +54,6 @@ models:
           is_pii: true
           pii_class: pseudonymous_key
           erasure_strategy: retain
-      - name: name
-        description: Patient full name — direct PII identifier.
-        meta:
-          is_pii: true
-          pii_class: direct_identifier
-          erasure_strategy: anonymize
       - name: primary_provider_id
         description: FK to stg_providers; nullable.
         tests:

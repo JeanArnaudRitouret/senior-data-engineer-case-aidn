@@ -320,11 +320,13 @@ The `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented.
 
 | Category | This implementation | Production-grade |
 |---|---|---|
-| **Orchestration** | `make demo` / manual CLI invocations | Airflow or Prefect DAG; retries per task; SLA-paging on missed runs; separate staging and production environments |
-| **Monitoring** | stdout JSON | Datadog / Grafana; alert on `rows_dropped` spike, `_dlt_loads` gap (missed run), or `PipelineStepFailed` per table |
+| **Raw layer storage** | Native DuckDB tables (`raw.*` schema) — erasure can be handled from dbt; one storage system to explain (Postgres → DuckDB, no intermediate filesystem layer) | Parquet could be a production choice (portable, cloud-native, tool-agnostic), but deletes on immutable files require partition rewrites or a table format (Iceberg / Delta Lake). The trade-off accepted here is no native versioning (mitigated by raw tables being append-like; dbt models never `UPDATE`/`DELETE` against `raw.*`) |
+| **Orchestration** | `make demo` / manual CLI invocations | |
+| **Monitoring** | Structured JSON to stdout — deliberate. Stdout is the universal log contract in containerised environments; any aggregator (Datadog, CloudWatch, Loki) can consume it without a sidecar | Ship the stdout stream to an aggregator |
 | **Secrets management** | `.env` (git-ignored) | Vault / AWS Secrets Manager; automatic rotation; no plaintext credentials in any mounted volume |
-| **Schema evolution** | dlt `freeze` → `PipelineStepFailed` on new column | Schema registry; source DDL changes require a PR against column-hint declarations; migration tooling for additive changes |
-| **Scaling** | Single-host DuckDB | Partitioned Parquet on object storage + Spark / Trino for `intm` joins on large event tables; multiple dlt workers per table; dedicated Postgres read replica for CDC to isolate load from the OLTP primary |
-| **Security** | Single Postgres superuser; self-signed TLS | Least-privilege roles (ingest / consumer / admin); `sslmode=verify-full` with CA-signed cert; column-level encryption for PII at rest; row-level access controls in `serve.*`; immutable audit log on every query touching patient-linked models |
+| **Schema evolution** | dlt `freeze` → `PipelineStepFailed` on new column | Maybe schema registry (although it has big tradeoff too) |
+| **Scaling** | Single-host DuckDB | Partitioned Parquet on object storage; dedicated Postgres read replica for CDC to isolate load from the OLTP primary |
+| **Security** | Single Postgres superuser; self-signed TLS | Least-privilege roles (ingest / consumer / admin); `sslmode=verify-full` with CA-signed cert; column-level encryption for PII at rest; row-level access controls; immutable audit log on every query touching patient-linked models |
+| **CDC slot design** | One replication slot + publication per source table (3 slots for 4 tables) — clean per-table LSN isolation and independent failure domains | At this scale the operational overhead is low and the isolation benefit is real. At production scale with tens of tables, slots multiply: each unconsumed slot holds WAL on disk and a stuck slot can fill the Postgres disk entirely. Production would consolidate to fewer slots (e.g. one slot per consumer group) with slot-lag monitoring and automated alerts on `pg_replication_slots.wal_status = 'lost'` |
 
 ---

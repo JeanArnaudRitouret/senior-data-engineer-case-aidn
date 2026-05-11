@@ -19,10 +19,6 @@ from aidn.logging_setup import get_logger
 
 logger = get_logger(__name__)
 
-# Retry parameters — importable by tests to assert retry behaviour.
-MAX_RETRIES: int = 3
-BASE_DELAY_SECONDS: float = 1.0
-
 
 def make_pipeline(settings: Settings) -> dlt.Pipeline:
     """Create the dlt pipeline targeting the DuckDB destination.

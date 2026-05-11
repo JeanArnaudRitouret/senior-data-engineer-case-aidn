@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """dlt pipeline factory and run entrypoint for the Aidn ingest layer."""
+
+from __future__ import annotations
 
 import logging
 import time
@@ -8,9 +8,14 @@ from typing import Any
 
 import dlt
 from dlt.destinations import duckdb as dlt_duckdb
+from dlt.extract import DltResource
 from dlt.pipeline.exceptions import PipelineStepFailed
 
 from aidn.config import Settings
+from aidn.ingest.resources.appointments import appointments_resource
+from aidn.ingest.resources.patient_consents import patient_consents_resource
+from aidn.ingest.resources.patients import patients_resource
+from aidn.ingest.resources.providers import providers_resource
 from aidn.logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -35,6 +40,28 @@ def make_pipeline(settings: Settings) -> dlt.Pipeline:
         dataset_name="raw",
         pipelines_dir=str(settings.dlt_data_dir),
     )
+
+
+@dlt.source(name="aidn_ingest")
+def aidn_source(settings: Settings) -> list[DltResource]:
+    """Return all four ingest resources as the aidn_ingest dlt source.
+
+    Decorated with ``@dlt.source`` — calling ``aidn_source(settings)`` returns
+    a ``DltSource`` whose resources can be narrowed with
+    ``source.with_resources("<name>")``.
+
+    Args:
+        settings: Runtime settings supplying connection URLs for each resource.
+
+    Returns:
+        List of DltResource objects; dlt wraps these into a DltSource on return.
+    """
+    return [
+        providers_resource(settings),
+        appointments_resource(settings),
+        patients_resource(settings),
+        patient_consents_resource(settings),
+    ]
 
 
 def run_pipeline(

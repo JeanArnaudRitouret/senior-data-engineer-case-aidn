@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from aidn.ingest.pipeline import run_pipeline
 from aidn.logging_setup import bind_run_id, configure_logging, get_logger
 
-# Canonical resource names — kept here until aidn_source() is wired in item 1.20.
+# Canonical resource names used for dry-run output and --table validation.
 _RESOURCE_NAMES: tuple[str, ...] = (
     "providers",
     "appointments",
@@ -117,12 +117,9 @@ def _run_ingest(*, dry_run: bool, table: str | None) -> None:
     configure_logging(settings.log_level)
     run_logger = bind_run_id(_logger, str(uuid.uuid4()))
 
-    # aidn_source() is wired in item 1.20; this import raises AttributeError
-    # until that item is implemented — acceptable since the live path is not
-    # tested until 1.21.
-    from aidn.ingest import pipeline as _pipeline  # noqa: PLC0415
+    from aidn.ingest.pipeline import aidn_source  # noqa: PLC0415
 
-    source = _pipeline.aidn_source()  # type: ignore[attr-defined]
+    source = aidn_source(settings)
     if table is not None:
         source = source.with_resources(table)
 
@@ -139,7 +136,7 @@ def _run_bootstrap(*, dry_run: bool) -> None:
     from aidn.ingest.bootstrap import CDC_TABLES, bootstrap_table  # deferred
 
     if dry_run:
-        for _, table_name, _pk in CDC_TABLES:
+        for _, table_name, _pk, _pub in CDC_TABLES:
             print(table_name)  # noqa: T201 — intentional user-facing dry-run output
         return
 
@@ -154,8 +151,8 @@ def _run_bootstrap(*, dry_run: bool) -> None:
 
     pipeline = make_pipeline(settings)
 
-    for slot_name, table_name, primary_key in CDC_TABLES:
-        snapshot = bootstrap_table(slot_name, table_name, primary_key, settings)
+    for slot_name, table_name, primary_key, pub_name in CDC_TABLES:
+        snapshot = bootstrap_table(slot_name, table_name, primary_key, pub_name, settings)
         if snapshot is None:
             boot_logger.info(
                 "bootstrap_noop table=%s reason=slot_exists",

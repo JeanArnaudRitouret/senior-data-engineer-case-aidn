@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import psycopg2  # type: ignore[import-untyped]
+import psycopg2
 from dlt.extract import DltResource
 from dlt.sources.credentials import ConnectionStringCredentials
 
@@ -26,9 +26,6 @@ from aidn.ingest.validators import TABLE_VALIDATORS
 from pg_replication.helpers import init_replication
 
 logger = logging.getLogger(__name__)
-
-# Shared publication; covers all CDC tables via a single pub created in init.sql.
-_PUB_NAME: str = "aidn_cdc_pub"
 
 # CDC columns pre-declared on the snapshot resource so the destination schema is
 # stable post-bootstrap. Omits hard_delete — snapshot rows always have NULL here;
@@ -40,11 +37,11 @@ _SNAPSHOT_CDC_COLUMNS: dict[str, Any] = {
 }
 
 # One slot per CDC table — independent confirmed_flush_lsn, independent cadence.
-# Each tuple is (slot_name, table_name, primary_key). Import this constant in cli.py
-# to drive the bootstrap loop without duplicating the table list.
-CDC_TABLES: tuple[tuple[str, str, str], ...] = (
-    ("aidn_providers_slot", "providers", "provider_id"),
-    ("aidn_appointments_slot", "appointments", "event_id"),
+# Each tuple is (slot_name, table_name, primary_key, pub_name). Import this constant
+# in cli.py to drive the bootstrap loop without duplicating the table list.
+CDC_TABLES: tuple[tuple[str, str, str, str], ...] = (
+    ("aidn_providers_slot", "providers", "provider_id", "aidn_providers_pub"),
+    ("aidn_appointments_slot", "appointments", "event_id", "aidn_appointments_pub"),
 )
 
 
@@ -72,6 +69,7 @@ def bootstrap_table(
     slot_name: str,
     table_name: str,
     primary_key: str,
+    pub_name: str,
     settings: Settings,
 ) -> DltResource | None:
     """Create a replication slot and return the initial-snapshot resource.
@@ -85,9 +83,10 @@ def bootstrap_table(
 
     Args:
         slot_name: Logical-replication slot name (unique per table).
-        table_name: Postgres table to bootstrap; must be included in ``aidn_cdc_pub``.
+        table_name: Postgres table to bootstrap; must be included in ``pub_name``.
         primary_key: Primary key column name; passed to ``apply_hints`` so the merge
             disposition has a key to upsert on during the initial snapshot load.
+        pub_name: Per-table publication name (e.g. ``aidn_providers_pub``).
         settings: Runtime config supplying the replication connection URL.
 
     Returns:
@@ -107,7 +106,7 @@ def bootstrap_table(
     creds = ConnectionStringCredentials(dsn)
     result = init_replication(
         slot_name=slot_name,
-        pub_name=_PUB_NAME,
+        pub_name=pub_name,
         schema_name=settings.postgres_source_schema,
         table_names=[table_name],
         credentials=creds,

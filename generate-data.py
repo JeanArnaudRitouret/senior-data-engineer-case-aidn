@@ -93,7 +93,11 @@ COPY patient_consents FROM '/seed/patient_consents.csv' CSV HEADER;
 
 -- CDC infrastructure (logical replication)
 ALTER TABLE appointments REPLICA IDENTITY FULL;
--- providers uses REPLICA IDENTITY DEFAULT (provider_id is a PK; DEFAULT is sufficient)
-CREATE PUBLICATION aidn_cdc_pub FOR TABLE appointments, providers;
+-- REPLICA IDENTITY FULL required on providers: WAL DELETE with DEFAULT only sends the PK;
+-- non-nullable fields in the Pydantic model (name, specialty) cause ValidationError and
+-- the DELETE row is dropped before reaching raw.providers. FULL sends the entire old row.
+ALTER TABLE providers REPLICA IDENTITY FULL;
+CREATE PUBLICATION aidn_providers_pub FOR TABLE providers;
+CREATE PUBLICATION aidn_appointments_pub FOR TABLE appointments;
 """)
 print("seed/ generated")

@@ -8,16 +8,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import pydantic
 from dlt.extract import DltResource
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from pg_replication import replication_resource
 
 from aidn.config import Settings
-from aidn.logging_setup import get_logger
-
-_logger = get_logger(__name__)
+from aidn.ingest.validators import _validate_provider
 
 # Replication slot dedicated to the providers table; separate from the
 # appointments slot so each resource consumes WAL independently.
@@ -37,36 +34,6 @@ _CDC_COLUMNS: dict[str, Any] = {
         "nullable": True,
     },
 }
-
-
-def _validate_provider(row: dict[str, Any]) -> Any:
-    """Validate a single row against the Provider model (two-tier exception handler).
-
-    Tier 1 (ValidationError | KeyError): log warning with pseudonymous entity_id;
-    return None to drop the row (dlt add_map drops None items).
-    Tier 2 (any other Exception): log error with exc_info; re-raise.
-
-    Args:
-        row: Raw dict from the pg_replication CDC stream (deleted_ts is None
-            for live rows, non-null for WAL DELETE events).
-
-    Returns:
-        Validated Provider model instance, or None if validation fails.
-    """
-    try:
-        from aidn.models.ingest import Provider  # deferred to avoid circular scan
-
-        return Provider.model_validate(row)
-    except (pydantic.ValidationError, KeyError) as e:
-        _logger.warning(
-            "row_dropped table=providers reason=%s entity_id=%s",
-            type(e).__name__,
-            row.get("provider_id"),
-        )
-        return None
-    except Exception:
-        _logger.error("row_failed table=providers", exc_info=True)
-        raise
 
 
 def providers_resource(settings: Settings) -> DltResource:

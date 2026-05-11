@@ -3,17 +3,26 @@
 The snapshot resource returned by ``init_replication(persist_snapshots=True)`` must be
 consumed in the same process invocation via ``pipeline.run(snapshot)`` — do not store
 and replay across process boundaries (the exported-snapshot handle is ephemeral).
+
+Each snapshot resource is augmented before use:
+- ``apply_hints(columns=_SNAPSHOT_CDC_COLUMNS)`` pre-declares ``lsn`` and ``deleted_ts``
+  so the destination schema is stable post-bootstrap (columns appear even before the first
+  WAL event).
+- ``add_map(TABLE_VALIDATORS[table_name])`` applies the same Pydantic two-tier validator
+  the steady-state CDC resource uses, closing the validity-contract divergence.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import psycopg2  # type: ignore[import-untyped]
 from dlt.extract import DltResource
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from aidn.config import Settings
+from aidn.ingest.validators import TABLE_VALIDATORS
 from pg_replication.helpers import init_replication
 
 logger = logging.getLogger(__name__)
@@ -21,12 +30,21 @@ logger = logging.getLogger(__name__)
 # Shared publication; covers all CDC tables via a single pub created in init.sql.
 _PUB_NAME: str = "aidn_cdc_pub"
 
+# CDC columns pre-declared on the snapshot resource so the destination schema is
+# stable post-bootstrap. Omits hard_delete — snapshot rows always have NULL here;
+# the steady-state CDC resource (_CDC_COLUMNS in providers.py) carries hard_delete=False
+# per Q36, which is meaningful only at the merge step.
+_SNAPSHOT_CDC_COLUMNS: dict[str, Any] = {
+    "lsn": {"data_type": "bigint", "nullable": True},
+    "deleted_ts": {"data_type": "timestamp", "nullable": True},
+}
+
 # One slot per CDC table — independent confirmed_flush_lsn, independent cadence.
-# Each tuple is (slot_name, table_name). Import this constant in cli.py to drive
-# the bootstrap loop without duplicating the table list.
-CDC_TABLES: tuple[tuple[str, str], ...] = (
-    ("aidn_providers_slot", "providers"),
-    ("aidn_appointments_slot", "appointments"),
+# Each tuple is (slot_name, table_name, primary_key). Import this constant in cli.py
+# to drive the bootstrap loop without duplicating the table list.
+CDC_TABLES: tuple[tuple[str, str, str], ...] = (
+    ("aidn_providers_slot", "providers", "provider_id"),
+    ("aidn_appointments_slot", "appointments", "event_id"),
 )
 
 
@@ -53,6 +71,7 @@ def _slot_exists(slot_name: str, dsn: str) -> bool:
 def bootstrap_table(
     slot_name: str,
     table_name: str,
+    primary_key: str,
     settings: Settings,
 ) -> DltResource | None:
     """Create a replication slot and return the initial-snapshot resource.
@@ -67,6 +86,8 @@ def bootstrap_table(
     Args:
         slot_name: Logical-replication slot name (unique per table).
         table_name: Postgres table to bootstrap; must be included in ``aidn_cdc_pub``.
+        primary_key: Primary key column name; passed to ``apply_hints`` so the merge
+            disposition has a key to upsert on during the initial snapshot load.
         settings: Runtime config supplying the replication connection URL.
 
     Returns:
@@ -101,6 +122,9 @@ def bootstrap_table(
         )
 
     resource: DltResource = result[0] if isinstance(result, list) else result
+
+    resource.apply_hints(primary_key=primary_key, columns=_SNAPSHOT_CDC_COLUMNS)
+    resource.add_map(TABLE_VALIDATORS[table_name])
 
     logger.info(
         "bootstrap_snapshot_ready slot_name=%s table=%s",

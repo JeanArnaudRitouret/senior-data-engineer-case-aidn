@@ -48,7 +48,7 @@ def patients_resource(settings: Settings) -> DltResource:
     resource: DltResource = sql_table(
         credentials=str(settings.postgres_url),
         table="patients",
-        schema="public",
+        schema=settings.postgres_source_schema,
         incremental=dlt.sources.incremental("updated_at", lag=_INCREMENTAL_LAG.total_seconds()),
     )
     resource.apply_hints(

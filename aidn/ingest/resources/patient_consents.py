@@ -54,7 +54,7 @@ def patient_consents_resource(settings: Settings) -> DltResource:
     resource: DltResource = sql_table(
         credentials=str(settings.postgres_url),
         table="patient_consents",
-        schema="public",
+        schema=settings.postgres_source_schema,
     )
     resource.apply_hints(
         primary_key="patient_id",

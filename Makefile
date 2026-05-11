@@ -1,4 +1,4 @@
-.PHONY: up down seed bootstrap ingest demo cdc-smoke tls-cert lint typecheck test clear-dlt-state
+.PHONY: up down seed bootstrap ingest demo cdc-smoke tls-cert lint typecheck test clear-dlt-state erasure
 
 up:
 	docker compose up -d --wait
@@ -27,6 +27,9 @@ cdc-smoke: ## Run CDC smoke test — assumes `make demo` already ran
 
 clear-dlt-state: ## Reset persisted dlt pipeline schema — run before `make demo` after schema-level config changes
 	rm -rf .dlt/pipelines/aidn_ingest/ aidn.duckdb
+
+erasure: ## Run GDPR Art. 17 erasure sweep — hard-deletes all raw rows for pending erasure_requests
+	cd dbt_aidn && poetry run dbt run-operation purge_erased_patients
 
 lint:
 	poetry run ruff check aidn/ tests/

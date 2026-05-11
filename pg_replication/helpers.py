@@ -754,23 +754,23 @@ class MessageConsumer:
         )
         if include_columns is not None:
             columns = {k: v for k, v in columns.items() if k in include_columns}
-        # 2) override source hints
-        column_hints: TTableSchemaColumns = (
-            dict() if self.columns is None else self.columns.get(table_name, dict())
-        )
-        for column_name, column_val in column_hints.items():
-            columns[column_name] = merge_column(columns[column_name], column_val)
-
-        # add hints for replication columns
+        # add hints for replication columns first so resource column_hints can override them
         columns["lsn"] = {"data_type": "bigint", "nullable": True}
         if self.pub_ops["update"] or self.pub_ops["delete"]:
             columns["lsn"]["dedup_sort"] = "desc"
         if self.pub_ops["delete"]:
             columns["deleted_ts"] = {
-                "hard_delete": True,
                 "data_type": "timestamp",
                 "nullable": True,
             }
+
+        # 2) override source hints — runs after CDC columns are initialised so that
+        # resource column_hints (e.g. hard_delete=False on deleted_ts) win over defaults
+        column_hints: TTableSchemaColumns = (
+            dict() if self.columns is None else self.columns.get(table_name, dict())
+        )
+        for column_name, column_val in column_hints.items():
+            columns[column_name] = merge_column(columns.get(column_name, {}), column_val)
 
         # determine write disposition
         write_disposition: TWriteDisposition = "append"

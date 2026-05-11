@@ -36,10 +36,6 @@ KILL_DELAY_SECONDS: float = 0.8
 _PROJECT_ROOT = Path(__file__).parents[2]
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def crash_settings(
@@ -56,10 +52,6 @@ def crash_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _run_ingest(settings: Settings) -> str:
@@ -78,10 +70,6 @@ def _count_dlt_loads(db_path: str) -> int:
     assert result is not None
     return int(result[0])
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
@@ -103,7 +91,6 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
     dlt_dir = str(crash_settings.dlt_data_dir)
     pipeline = make_pipeline(crash_settings)
 
-    # -- Step 1: bootstrap ---------------------------------------------------
     for slot_name, table_name, primary_key, pub_name in CDC_TABLES:
         snapshot = bootstrap_table(slot_name, table_name, primary_key, pub_name, crash_settings)
         assert snapshot is not None, (
@@ -112,10 +99,8 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
         )
         pipeline.run(snapshot)
 
-    # -- Step 2: first ingest to establish watermarks ------------------------
     _run_ingest(crash_settings)
 
-    # -- Step 3: record baseline --------------------------------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         baseline = {
             "providers": conn.execute(
@@ -133,7 +118,6 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
         }
     load_count_before_kill = _count_dlt_loads(db_path)
 
-    # -- Step 4: start subprocess, kill it ----------------------------------
     # Pass test-specific env vars so the subprocess writes to the isolated tmp_path.
     subprocess_env = {
         **os.environ,
@@ -156,11 +140,9 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
     # The kill may have landed pre-commit, mid-commit, or post-completion; all are valid.
     load_count_after_kill = _count_dlt_loads(db_path)
 
-    # -- Step 5: resume run -------------------------------------------------
     _run_ingest(crash_settings)
     load_count_after_resume = _count_dlt_loads(db_path)
 
-    # -- Step 6: assert merge tables are stable (idempotent) ----------------
     with duckdb.connect(db_path, read_only=True) as conn:
         providers_count = conn.execute(
             "SELECT count(*) FROM raw.providers"  # noqa: S608
@@ -201,7 +183,6 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
             "indicating the watermark was not persisted across the crash."
         )
 
-        # -- Step 7: no duplicate PKs in merge / scd2 tables ----------------
         providers_dups = conn.execute(
             "SELECT count(*) FROM ("
             "  SELECT provider_id FROM raw.providers"
@@ -226,7 +207,6 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
             f"{consent_dups[0]}"
         )
 
-    # -- Step 8: resume committed exactly 1 new _dlt_loads entry ------------
     # The resume run always commits one package (dlt commits even for empty loads).
     # This confirms the resume ran to completion without multi-package anomaly.
     resume_packages = load_count_after_resume - load_count_after_kill

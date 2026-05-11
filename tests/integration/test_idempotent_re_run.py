@@ -7,7 +7,6 @@ to a temporary DuckDB file; they do NOT touch ``aidn.duckdb``.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import duckdb
@@ -20,10 +19,6 @@ from aidn.logging_setup import bind_run_id, configure_logging, get_logger
 
 logger = get_logger(__name__)
 
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -41,10 +36,6 @@ def idempotent_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _run_ingest(settings: Settings) -> str:
@@ -76,10 +67,6 @@ def _row_counts(db_path: str) -> dict[str, int]:
         }
 
 
-# ---------------------------------------------------------------------------
-# Test
-# ---------------------------------------------------------------------------
-
 
 def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
     """Second ingest run with no source changes must not alter raw.* row counts.
@@ -96,7 +83,6 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
     db_path = str(idempotent_settings.duckdb_path)
     pipeline = make_pipeline(idempotent_settings)
 
-    # -- Step 1: bootstrap (creates slots; loads snapshots) ------------------
     for slot_name, table_name, primary_key, pub_name in CDC_TABLES:
         snapshot = bootstrap_table(slot_name, table_name, primary_key, pub_name, idempotent_settings)
         assert snapshot is not None, (
@@ -105,16 +91,12 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
         )
         pipeline.run(snapshot)
 
-    # -- Step 2: first ingest run --------------------------------------------
     _run_ingest(idempotent_settings)
 
-    # -- Step 3: baseline counts ---------------------------------------------
     counts_after_run1 = _row_counts(db_path)
 
-    # -- Step 4: second ingest run (no source changes) -----------------------
     _run_ingest(idempotent_settings)
 
-    # -- Step 5: row counts must be unchanged --------------------------------
     counts_after_run2 = _row_counts(db_path)
 
     # merge tables — strict row-count idempotency (delete-insert by PK).
@@ -151,7 +133,6 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
         "indicating a watermark reset; incremental state was not persisted."
     )
 
-    # -- Step 6: no duplicate PKs in merge and scd2 tables -------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         providers_dups = conn.execute(
             "SELECT count(*) FROM ("
@@ -178,7 +159,6 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
             f"{consent_dups[0]}"
         )
 
-    # -- Step 7: second bootstrap call must no-op ----------------------------
     loads_before_second_bootstrap = counts_after_run2["dlt_loads"]
 
     for slot_name, table_name, primary_key, pub_name in CDC_TABLES:

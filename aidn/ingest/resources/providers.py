@@ -26,9 +26,10 @@ _PUB_NAME: str = "aidn_providers_pub"
 _CDC_COLUMNS: dict[str, Any] = {
     "lsn": {"data_type": "bigint", "nullable": True},
     "deleted_ts": {
-        # Override pg_replication's default hard_delete=True (Q36): preserve the
-        # raw row even when the source row is physically deleted; deleted_ts IS
-        # NOT NULL is the sole delete signal at the raw boundary.
+        # Override pg_replication's default hard_delete=True: preserve the raw row
+        # when the source row is physically deleted. deleted_ts IS NOT NULL is the
+        # sole delete signal at the raw boundary — downstream models derive
+        # is_deleted from this column rather than relying on the row disappearing.
         "hard_delete": False,
         "data_type": "timestamp",
         "nullable": True,
@@ -42,7 +43,7 @@ def providers_resource(settings: Settings) -> DltResource:
     Configures the pg_replication resource with:
     - ``write_disposition="merge"`` on ``provider_id`` (idempotent upsert)
     - ``schema_contract={"columns": "freeze"}`` (unexpected source columns raise)
-    - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete; Q36)
+    - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete)
 
     Args:
         settings: Runtime settings supplying the replication connection URL.

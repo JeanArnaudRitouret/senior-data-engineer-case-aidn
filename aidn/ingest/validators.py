@@ -1,4 +1,7 @@
-"""Per-table Pydantic v2 two-tier validators for the dlt/raw boundary (dlt-standards Rule 12)."""
+"""Pydantic v2 row-level validators wired into dlt resources via add_map.
+
+Two-tier handling: ValidationError → drop row + WARN with rows_dropped count;
+any other exception → ERROR + re-raise (never swallowed)."""
 
 from __future__ import annotations
 

@@ -211,19 +211,11 @@ class TestPatientConsent:
             c.patient_id = "mutated"  # type: ignore[misc]
 
 
-# ---------------------------------------------------------------------------
-# Contract test — pg_lsn wire type (item 1.27b)
-# ---------------------------------------------------------------------------
-
-
 def test_pg_replication_lsn_type_matches_contract() -> None:
     """lsn must be int at the dlt/raw boundary — pg_lsn string format is rejected.
 
-    data_contract.md records lsn as BIGINT (int in Python); dlt's pg_replication
-    helpers.py converts the pg_lsn hex string to int before yielding a row.  If
-    that conversion were ever bypassed, the Pydantic model would catch the raw
-    pg_lsn string format ('0/163D8F0') and raise ValidationError — preventing a
-    string value from landing in raw.*
+    lsn arrives as BIGINT (dlt converts pg_lsn to int internally); raw hex string
+    format must be rejected by the Pydantic model.
 
     This test pins that invariant for both CDC-sourced models.
     """
@@ -234,7 +226,7 @@ def test_pg_replication_lsn_type_matches_contract() -> None:
         provider_id="prov-contract",
         name="Contract Test",
         specialty=None,
-        lsn=17022192,  # 0x103D8F0 in decimal — a valid pg_lsn-derived int
+        lsn=17022192,
     )
     assert isinstance(p.lsn, int)
 
@@ -258,7 +250,7 @@ def test_pg_replication_lsn_type_matches_contract() -> None:
             provider_id="prov-contract",
             name="Contract Test",
             specialty=None,
-            lsn="0/103D8F0",  # type: ignore[arg-type]  # raw pg_lsn hex string
+            lsn="0/103D8F0",  # type: ignore[arg-type]
         )
 
     # Raw pg_lsn string format must be rejected for Appointment
@@ -272,5 +264,5 @@ def test_pg_replication_lsn_type_matches_contract() -> None:
             status="scheduled",
             event_timestamp=_TS,  # type: ignore[arg-type]
             ingested_at=_TS,  # type: ignore[arg-type]
-            lsn="0/103D8F0",  # type: ignore[arg-type]  # raw pg_lsn hex string
+            lsn="0/103D8F0",  # type: ignore[arg-type]
         )

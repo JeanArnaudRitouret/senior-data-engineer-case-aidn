@@ -1,4 +1,4 @@
-"""Integration tests — schema_contract: freeze blocks unexpected source columns (item 1.24).
+"""Integration tests — schema_contract: freeze blocks unexpected source columns.
 
 Each parametrize case adds a novel column to one Postgres table, runs the pipeline,
 and asserts the correct rejection behaviour for that table's ingestion mechanism.
@@ -58,10 +58,6 @@ _CDC_TABLES: frozenset[str] = frozenset({"providers", "appointments"})
 _RAISES_TABLES: frozenset[str] = frozenset({"providers", "appointments", "patient_consents"})
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def freeze_settings(
@@ -78,10 +74,6 @@ def freeze_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _bootstrap_and_ingest(settings: Settings) -> None:
@@ -150,10 +142,6 @@ def _exc_chain_str(exc: BaseException) -> str:
         current = cause if cause is not None else ctx
     return " ".join(parts)
 
-
-# ---------------------------------------------------------------------------
-# Test
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import pytest
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from pg_replication import replication_resource as _pg_replication_resource

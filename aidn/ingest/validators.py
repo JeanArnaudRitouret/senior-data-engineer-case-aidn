@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 import pydantic
+from pydantic import BaseModel
 
 from aidn.logging_setup import get_logger
 from aidn.models.ingest import Appointment, Patient, PatientConsent, Provider
@@ -131,7 +132,7 @@ def _validate_patient_consent(row: dict[str, Any]) -> PatientConsent | None:
         raise
 
 
-TABLE_VALIDATORS: dict[str, Callable[[dict[str, Any]], Any]] = {
+TABLE_VALIDATORS: dict[str, Callable[[dict[str, Any]], BaseModel | None]] = {
     "providers": _validate_provider,
     "appointments": _validate_appointment,
     "patients": _validate_patient,

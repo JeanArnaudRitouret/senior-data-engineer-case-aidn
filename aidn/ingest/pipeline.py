@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 import dlt
 from dlt.destinations import duckdb as dlt_duckdb
-from dlt.extract import DltResource
+from dlt.extract import DltResource, DltSource
 from dlt.pipeline.exceptions import PipelineStepFailed
 
 from aidn.config import Settings
@@ -65,7 +64,7 @@ def aidn_source(settings: Settings) -> list[DltResource]:
 
 
 def run_pipeline(
-    source: Any,
+    source: DltSource | DltResource,
     *,
     settings: Settings,
     run_logger: logging.LoggerAdapter[logging.Logger],

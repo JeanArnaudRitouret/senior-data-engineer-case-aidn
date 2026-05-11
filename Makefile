@@ -1,4 +1,4 @@
-.PHONY: up down seed ingest demo tls-cert lint typecheck test
+.PHONY: up down seed bootstrap ingest demo tls-cert lint typecheck test
 
 up:
 	docker compose up -d --wait
@@ -16,6 +16,9 @@ tls-cert:
 	  -out seed/tls/server.crt -days 365 -nodes \
 	  -subj "/CN=localhost"
 
+bootstrap:
+	poetry run aidn bootstrap
+
 ingest:
 	poetry run aidn ingest
 
@@ -28,6 +31,6 @@ typecheck:
 test:
 	poetry run pytest tests/
 
-demo: tls-cert up seed ingest
+demo: tls-cert up seed bootstrap ingest
 	poetry run duckdb $${DUCKDB_PATH:-aidn.duckdb} \
 	  -c "SELECT status, count(*) FROM raw._dlt_loads GROUP BY 1;"

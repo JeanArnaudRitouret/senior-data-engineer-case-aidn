@@ -1,0 +1,164 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: appointments
+        meta:
+          loaded_by: dlt-pg_replication
+          pii_table: false
+        columns:
+          - name: event_id
+            description: Source event ID — not a PK; at-least-once duplicates expected.
+            tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: warn
+          - name: appointment_id
+            description: Business key — stable across status-change events.
+            tests:
+              - not_null
+          - name: patient_id
+            description: FK to patients.
+            meta:
+              is_pii: true
+              pii_class: pseudonymous_key
+              erasure_strategy: retain
+            tests:
+              - not_null
+          - name: provider_id
+            description: FK to providers.
+            tests:
+              - not_null
+          - name: scheduled_at
+            description: When the appointment was booked.
+            tests:
+              - not_null
+          - name: status
+            description: "Appointment lifecycle status: scheduled → completed/cancelled/no_show."
+            tests:
+              - not_null
+          - name: event_timestamp
+            description: When the status-change event occurred in the source system.
+            tests:
+              - not_null
+          - name: ingested_at
+            description: Watermark column — when the source emitted the row to the pipeline.
+            tests:
+              - not_null
+          - name: lsn
+            description: WAL log-sequence number from pg_replication; ordering key within a run.
+          - name: deleted_ts
+            description: Set when source row is physically deleted; NULL for live rows.
+          - name: _dlt_load_id
+            description: dlt load package identifier.
+          - name: _dlt_id
+            description: dlt row hash.
+
+      - name: patients
+        meta:
+          loaded_by: dlt-incremental
+          pii_table: true
+        columns:
+          - name: patient_id
+            description: Pseudonymous patient key — no PK constraint in source; multiple rows per ID represent SCD-style updates.
+            meta:
+              is_pii: true
+              pii_class: pseudonymous_key
+              erasure_strategy: retain
+            tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: warn
+          - name: name
+            description: Patient full name — direct PII identifier.
+            meta:
+              is_pii: true
+              pii_class: direct_identifier
+              erasure_strategy: anonymize
+            tests:
+              - not_null
+          - name: primary_provider_id
+            description: FK to providers; nullable.
+          - name: postcode
+            description: 4-digit postcode — quasi-identifier PII.
+            meta:
+              is_pii: true
+              pii_class: quasi_identifier
+              erasure_strategy: anonymize
+          - name: updated_at
+            description: Watermark column — when the patient record was last modified in the source.
+            tests:
+              - not_null
+          - name: _dlt_load_id
+            description: dlt load package identifier.
+          - name: _dlt_id
+            description: dlt row hash.
+
+      - name: providers
+        meta:
+          loaded_by: dlt-pg_replication
+          pii_table: false
+        columns:
+          - name: provider_id
+            description: PK.
+            tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: error
+          - name: name
+            description: Provider display name.
+            tests:
+              - not_null
+          - name: specialty
+            description: "Clinical specialty: GP, Cardiology, Pediatrics, Dermatology, Oncology."
+          - name: lsn
+            description: WAL log-sequence number from pg_replication.
+          - name: deleted_ts
+            description: Set when source row is physically deleted; NULL for live rows.
+          - name: _dlt_load_id
+            description: dlt load package identifier.
+          - name: _dlt_id
+            description: dlt row hash.
+
+      - name: patient_consents
+        meta:
+          loaded_by: dlt-scd2
+          pii_table: true
+          legally_significant: true
+        columns:
+          - name: patient_id
+            description: Pseudonymous patient key — FK to patients; PK in source.
+            meta:
+              is_pii: true
+              pii_class: pseudonymous_key
+              erasure_strategy: retain
+            tests:
+              - not_null
+              - unique:
+                  config:
+                    severity: warn
+          - name: consent_research
+            description: Patient opted in to research use.
+            tests:
+              - not_null
+          - name: consent_marketing
+            description: Patient opted in to marketing communications.
+            tests:
+              - not_null
+          - name: consent_partner_share
+            description: Patient opted in to data sharing with partners.
+            tests:
+              - not_null
+          - name: _dlt_valid_from
+            description: SCD2 validity start — when this consent record became active.
+          - name: _dlt_valid_to
+            description: SCD2 validity end — NULL means the record is currently active.
+          - name: _dlt_load_id
+            description: dlt load package identifier.
+          - name: _dlt_id
+            description: dlt row hash.

@@ -87,7 +87,7 @@ def bootstrap_table(
     result = init_replication(
         slot_name=slot_name,
         pub_name=_PUB_NAME,
-        schema_name="public",
+        schema_name=settings.postgres_source_schema,
         table_names=[table_name],
         credentials=creds,
         publish="insert,update,delete",

@@ -22,6 +22,7 @@ from dlt.extract import DltResource
 from dlt.sources.credentials import ConnectionStringCredentials
 
 from aidn.config import Settings
+from aidn.ingest.preprocess import TABLE_PREPROCESSORS
 from aidn.ingest.validators import TABLE_VALIDATORS
 from pg_replication.helpers import init_replication
 
@@ -37,11 +38,16 @@ _SNAPSHOT_CDC_COLUMNS: dict[str, Any] = {
 }
 
 # One slot per CDC table — independent confirmed_flush_lsn, independent cadence.
-# Each tuple is (slot_name, table_name, primary_key, pub_name). Import this constant
-# in cli.py to drive the bootstrap loop without duplicating the table list.
-CDC_TABLES: tuple[tuple[str, str, str, str], ...] = (
+# Each tuple is (slot_name, table_name, snapshot_primary_key, pub_name).
+# snapshot_primary_key=None signals write_disposition="append" for the bootstrap snapshot;
+# use this when the CDC primary key (e.g. lsn) is NULL on all snapshot rows, which would
+# collapse every row to one under a merge disposition.
+CDC_TABLES: tuple[tuple[str, str, str | None, str], ...] = (
     ("aidn_providers_slot", "providers", "provider_id", "aidn_providers_pub"),
     ("aidn_appointments_slot", "appointments", "event_id", "aidn_appointments_pub"),
+    # patients: lsn is the CDC merge key (WAL-unique), but snapshot rows have lsn=NULL.
+    # None → bootstrap uses write_disposition="append" so all 68 seed rows land intact.
+    ("aidn_patients_slot", "patients", None, "aidn_patients_pub"),
 )
 
 
@@ -68,7 +74,7 @@ def _slot_exists(slot_name: str, dsn: str) -> bool:
 def bootstrap_table(
     slot_name: str,
     table_name: str,
-    primary_key: str,
+    primary_key: str | None,
     pub_name: str,
     settings: Settings,
 ) -> DltResource | None:
@@ -84,8 +90,10 @@ def bootstrap_table(
     Args:
         slot_name: Logical-replication slot name (unique per table).
         table_name: Postgres table to bootstrap; must be included in ``pub_name``.
-        primary_key: Primary key column name; passed to ``apply_hints`` so the merge
-            disposition has a key to upsert on during the initial snapshot load.
+        primary_key: Column to use as the snapshot merge key, or ``None`` when the
+            CDC primary key is NULL on all snapshot rows (e.g. ``lsn`` for patients).
+            ``None`` → snapshot uses ``write_disposition="append"`` so every source
+            row lands without NULL-key dedup collapse.
         pub_name: Per-table publication name (e.g. ``aidn_providers_pub``).
         settings: Runtime config supplying the replication connection URL.
 
@@ -122,7 +130,12 @@ def bootstrap_table(
 
     resource: DltResource = result[0] if isinstance(result, list) else result
 
-    resource.apply_hints(primary_key=primary_key, columns=_SNAPSHOT_CDC_COLUMNS)
+    if primary_key is None:
+        resource.apply_hints(write_disposition="append", columns=_SNAPSHOT_CDC_COLUMNS)
+    else:
+        resource.apply_hints(primary_key=primary_key, columns=_SNAPSHOT_CDC_COLUMNS)
+    if table_name in TABLE_PREPROCESSORS:
+        resource.add_map(TABLE_PREPROCESSORS[table_name])
     resource.add_map(TABLE_VALIDATORS[table_name])
 
     logger.info(

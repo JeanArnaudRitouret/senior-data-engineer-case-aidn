@@ -19,7 +19,7 @@ from aidn.ingest.validators import _validate_provider
 # Replication slot dedicated to the providers table; separate from the
 # appointments slot so each resource consumes WAL independently.
 _SLOT_NAME: str = "aidn_providers_slot"
-_PUB_NAME: str = "aidn_cdc_pub"
+_PUB_NAME: str = "aidn_providers_pub"
 
 # CDC columns added by pg_replication that are absent from the source schema;
 # declared explicitly so schema_contract freeze accepts them on first run.

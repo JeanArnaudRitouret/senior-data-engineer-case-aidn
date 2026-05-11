@@ -19,15 +19,15 @@ from aidn.ingest.validators import _validate_appointment
 # Replication slot dedicated to the appointments table; separate from the
 # providers slot so each resource consumes WAL independently.
 _SLOT_NAME: str = "aidn_appointments_slot"
-_PUB_NAME: str = "aidn_cdc_pub"
+_PUB_NAME: str = "aidn_appointments_pub"
 
 # Column hints applied to the appointments resource:
 # - lsn, deleted_ts: CDC columns added by pg_replication absent from the source schema;
 #   declared explicitly so schema_contract freeze accepts them on first run.
-# - ingested_at: source column; dedup_sort="desc" keeps the latest re-ingestion for a
-#   given event_id when the source re-emits byte-identical events (at-least-once).
-#   event_timestamp is NOT the tie-break — at-least-once re-emissions share the same
-#   event_timestamp; only ingested_at differs.
+# - lsn carries dedup_sort="asc" set by pg_replication internally; it is the WAL
+#   ordering key and the correct at-least-once dedup tie-break for event_id (WAL-level
+#   duplicates always differ by lsn, not by ingested_at). Do not add a second
+#   dedup_sort column — dlt allows exactly one per table.
 _COLUMN_HINTS: dict[str, Any] = {
     "lsn": {"data_type": "bigint", "nullable": True},
     "deleted_ts": {
@@ -38,7 +38,6 @@ _COLUMN_HINTS: dict[str, Any] = {
         "data_type": "timestamp",
         "nullable": True,
     },
-    "ingested_at": {"dedup_sort": "desc"},
 }
 
 
@@ -47,7 +46,7 @@ def appointments_resource(settings: Settings) -> DltResource:
 
     Configures the pg_replication resource with:
     - ``write_disposition="merge"`` on ``event_id`` (at-least-once dedup)
-    - ``dedup_sort="desc"`` on ``ingested_at`` (tie-break for duplicate event_id rows)
+    - ``dedup_sort`` on ``lsn`` (set by pg_replication internally; WAL ordering key)
     - ``schema_contract={"columns": "freeze"}`` (unexpected source columns raise)
     - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete; Q36)
 

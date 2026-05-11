@@ -47,7 +47,6 @@ class Settings(BaseSettings):
                 if insecure in url_str:
                     raise ValueError(
                         f"{field_name} uses '{insecure}' — transport encryption is required. "
-                        "Use sslmode=require, sslmode=verify-ca, or sslmode=verify-full. "
-                        "See decision-documentation.md Q31."
+                        "Use sslmode=require, sslmode=verify-ca, or sslmode=verify-full."
                     )
         return self

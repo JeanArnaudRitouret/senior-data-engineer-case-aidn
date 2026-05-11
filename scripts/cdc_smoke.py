@@ -23,8 +23,8 @@ _REPO_ROOT = Path(__file__).parents[1]
 _SMOKE_SQL = _REPO_ROOT / "seed" / "cdc_smoke.sql"
 _LOG = get_logger(__name__)
 
-_TICK = "✓"  # ✓
-_CROSS = "✗"  # ✗
+_TICK = "✓"
+_CROSS = "✗"
 
 
 @dataclass
@@ -49,7 +49,7 @@ class MutationResult:
     mutation: str
     expected: str
     observed: str
-    result: str  # ✓ / ✗
+    result: str
 
 
 def _fetchone_str(
@@ -351,9 +351,9 @@ def _check_patient_consents(
 ) -> list[MutationResult]:
     """Assert INSERT, UPDATE, and DELETE SCD2 propagation for raw.patient_consents.
 
-    DELETE is asserted as Regime B absent-PK retirement: the prior open row must have
-    _dlt_valid_to set and no new open row opened. GDPR erasure (purging the row entirely)
-    remains deferred to Phase 5.5 via a separate delete-insert resource per dlt-standards Rule 5.
+    On a source DELETE the prior open SCD2 row is closed (_dlt_valid_to set);
+    no new row opens. GDPR erasure runs as a separate hard-delete operation
+    and is intentionally not combined with the SCD2 resource.
 
     Args:
         conn: Open DuckDB connection.

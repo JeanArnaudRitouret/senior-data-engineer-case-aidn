@@ -18,7 +18,9 @@ from typing import Any, Callable
 def _strip_name(row: dict[str, Any]) -> dict[str, Any]:
     """Remove ``name`` from a patient WAL event or snapshot dict.
 
-    ``patients.name`` is a direct identifier excluded at all pipeline boundaries (Q40, P.2).
+    ``patients.name`` is a direct identifier; dropping it here ensures it never reaches
+    the raw layer, staging, or any derived model — the dlt boundary is the earliest
+    and only enforcement point.
     ``pg_replication`` includes every source column in WAL events and in the exported snapshot
     rows; stripping here prevents the Patient model's ``extra="forbid"`` from rejecting them.
 

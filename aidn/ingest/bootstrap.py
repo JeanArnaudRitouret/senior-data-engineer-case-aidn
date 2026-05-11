@@ -29,9 +29,9 @@ from pg_replication.helpers import init_replication
 logger = logging.getLogger(__name__)
 
 # CDC columns pre-declared on the snapshot resource so the destination schema is
-# stable post-bootstrap. Omits hard_delete — snapshot rows always have NULL here;
-# the steady-state CDC resource (_CDC_COLUMNS in providers.py) carries hard_delete=False
-# per Q36, which is meaningful only at the merge step.
+# stable before any WAL event flows. hard_delete is omitted here — snapshot rows
+# carry no delete signal; the steady-state CDC resource applies hard_delete=False
+# so WAL DELETE events preserve the row rather than removing it from raw.
 _SNAPSHOT_CDC_COLUMNS: dict[str, Any] = {
     "lsn": {"data_type": "bigint", "nullable": True},
     "deleted_ts": {"data_type": "timestamp", "nullable": True},

@@ -1,4 +1,4 @@
-"""Integration test — Postgres logical replication prerequisites (item 1.27c).
+"""Integration test — Postgres logical replication prerequisites.
 
 Verifies that the Postgres container is configured with all prerequisites for
 CDC-based ingest before any dlt resource is run.  Failures here indicate a
@@ -31,10 +31,6 @@ def pg_conn() -> Generator["psycopg2.extensions.connection", None, None]:
     yield conn
     conn.close()
 
-
-# ---------------------------------------------------------------------------
-# Test
-# ---------------------------------------------------------------------------
 
 
 def test_postgres_logical_replication_prerequisites_exist(
@@ -118,6 +114,6 @@ def test_postgres_logical_replication_prerequisites_exist(
         role_row = cur.fetchone()
         assert role_row is not None, "current_user not found in pg_roles"
         assert role_row[0] is True, (
-            f"current_user does not have REPLICATION privilege (rolreplication=False). "
+            "current_user does not have REPLICATION privilege (rolreplication=False). "
             "The pipeline requires a role with LOGIN and REPLICATION to create slots."
         )

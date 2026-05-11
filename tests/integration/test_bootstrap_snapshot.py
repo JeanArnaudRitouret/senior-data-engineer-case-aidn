@@ -17,10 +17,6 @@ from aidn.config import Settings
 from aidn.ingest.bootstrap import CDC_TABLES, bootstrap_table
 from aidn.ingest.pipeline import make_pipeline
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 _SEED_DIR = Path(__file__).parents[2] / "seed"
 
 
@@ -55,10 +51,6 @@ def _csv_unique_count(path: Path, key_column: str) -> int:
         return len({row[key_column] for row in reader})
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def bootstrap_settings(
@@ -75,10 +67,6 @@ def bootstrap_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 def test_seeded_rows_visible_after_bootstrap(
@@ -185,7 +173,6 @@ def test_bootstrap_idempotent(bootstrap_settings: Settings) -> None:
     """Second bootstrap call must no-op: no new _dlt_loads rows created."""
     pipeline = make_pipeline(bootstrap_settings)
 
-    # First pass: create slots and load snapshots.
     for slot_name, table_name, primary_key, pub_name in CDC_TABLES:
         snapshot = bootstrap_table(slot_name, table_name, primary_key, pub_name, bootstrap_settings)
         if snapshot is not None:
@@ -199,7 +186,6 @@ def test_bootstrap_idempotent(bootstrap_settings: Settings) -> None:
     assert before is not None
     count_before: int = before[0]
 
-    # Second pass: all slots exist; bootstrap_table must return None for every table.
     for slot_name, table_name, primary_key, pub_name in CDC_TABLES:
         result = bootstrap_table(slot_name, table_name, primary_key, pub_name, bootstrap_settings)
         assert result is None, (

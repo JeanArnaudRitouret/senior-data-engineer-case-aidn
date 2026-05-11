@@ -3,8 +3,8 @@
 Slot ``aidn_patients_slot`` is owned by ``aidn/ingest/bootstrap.py``.
 This module consumes a pre-existing slot and must not call ``init_replication()``.
 
-``name`` (direct identifier) is stripped from WAL events before Pydantic validation,
-continuing the data-minimisation decision from the prior sql_table resource (Q40, P.2).
+``name`` (direct identifier) is stripped from WAL events before Pydantic validation
+so it never enters raw — the dlt boundary is the earliest and only enforcement point.
 """
 
 from __future__ import annotations
@@ -29,9 +29,10 @@ _PUB_NAME: str = "aidn_patients_pub"
 _COLUMN_HINTS: dict[str, Any] = {
     "lsn": {"data_type": "bigint", "nullable": True},
     "deleted_ts": {
-        # Override pg_replication's default hard_delete=True (Q36): preserve the
-        # raw row even when the source row is physically deleted; deleted_ts IS
-        # NOT NULL is the sole delete signal at the raw boundary.
+        # Override pg_replication's default hard_delete=True: preserve the raw row
+        # when the source row is physically deleted. deleted_ts IS NOT NULL is the
+        # sole delete signal at the raw boundary — downstream models derive
+        # is_deleted from this column rather than relying on the row disappearing.
         "hard_delete": False,
         "data_type": "timestamp",
         "nullable": True,
@@ -46,11 +47,10 @@ def patients_resource(settings: Settings) -> DltResource:
     Configures the pg_replication resource with:
     - ``write_disposition="merge"`` on ``lsn`` (WAL-unique per event; at-least-once dedup)
     - ``schema_contract={"columns": "freeze"}`` (unexpected source columns raise)
-    - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete; Q36)
+    - ``hard_delete=False`` on ``deleted_ts`` (raw row preserved on WAL delete)
 
     ``name`` (direct identifier) is stripped before Pydantic validation so it never
-    enters raw — mirroring the ``excluded_columns=["name"]`` behaviour of the prior
-    sql_table resource (Q40, P.2).
+    enters raw — the dlt boundary is the earliest and only enforcement point.
 
     Args:
         settings: Runtime settings supplying the replication connection URL.

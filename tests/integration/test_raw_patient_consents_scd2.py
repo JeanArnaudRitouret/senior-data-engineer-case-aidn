@@ -1,7 +1,7 @@
-"""Integration tests — patient_consents Regime A SCD2 invariants.
+"""Integration tests — patient_consents full-snapshot SCD2 (no merge_key) invariants.
 
 Tests 1–2 verify SCD2 correctness against a live Postgres container.
-Test 3 covers the 1.19 snapshot-truncation guard (deferred; marked xfail).
+Test 3 covers the snapshot-truncation guard (deferred; marked xfail).
 
 Prerequisite: ``make up && make seed`` must have run before executing these tests.
 """
@@ -22,10 +22,6 @@ from aidn.logging_setup import bind_run_id, configure_logging, get_logger
 logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def scd2_settings(
@@ -41,10 +37,6 @@ def scd2_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _bootstrap_and_ingest(settings: Settings) -> None:
@@ -69,17 +61,13 @@ def _run_ingest(settings: Settings) -> None:
     run_pipeline(aidn_source(settings), settings=settings, run_logger=run_log)
 
 
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
-
 
 def test_raw_patient_consents_scd2_retires_deleted_row(
     scd2_settings: Settings,
 ) -> None:
     """Deleting a consent row in Postgres must close exactly one raw row.
 
-    Regime A SCD2 (no merge_key): when ``patient_id`` is absent from the next
+    Full-snapshot SCD2 (no merge_key): when ``patient_id`` is absent from the next
     full snapshot, dlt sets ``_dlt_valid_to`` on the existing raw row; all other
     rows remain current (``_dlt_valid_to IS NULL``).
 
@@ -91,7 +79,6 @@ def test_raw_patient_consents_scd2_retires_deleted_row(
     db_path = str(scd2_settings.duckdb_path)
     dsn = str(scd2_settings.postgres_url)
 
-    # -- pick a target patient_id --------------------------------------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -101,7 +88,6 @@ def test_raw_patient_consents_scd2_retires_deleted_row(
     assert row is not None, "seed data missing — run 'make up && make seed' first"
     target_pid: str = row[0]
 
-    # -- baseline: capture total current-row count before deletion -----------
     with duckdb.connect(db_path, read_only=True) as conn:
         total_current_before: int = conn.execute(
             "SELECT count(*) FROM raw.patient_consents WHERE _dlt_valid_to IS NULL"  # noqa: S608
@@ -117,7 +103,6 @@ def test_raw_patient_consents_scd2_retires_deleted_row(
         f"got {target_current_before}"
     )
 
-    # -- delete target from source -------------------------------------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -126,7 +111,6 @@ def test_raw_patient_consents_scd2_retires_deleted_row(
 
     _run_ingest(scd2_settings)
 
-    # -- assert SCD2 retirement ----------------------------------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         retired: int = conn.execute(
             "SELECT count(*) FROM raw.patient_consents "  # noqa: S608
@@ -160,7 +144,7 @@ def test_raw_patient_consents_scd2_history_preserved_on_consent_flip(
 ) -> None:
     """Flipping a consent flag must close the old row and open a new current row.
 
-    Regime A SCD2 (no merge_key): content change on an existing ``patient_id``
+    Full-snapshot SCD2 (no merge_key): content change on an existing ``patient_id``
     → dlt sets ``_dlt_valid_to`` on the prior row and inserts a new row
     reflecting the updated consent value.
 
@@ -172,7 +156,6 @@ def test_raw_patient_consents_scd2_history_preserved_on_consent_flip(
     db_path = str(scd2_settings.duckdb_path)
     dsn = str(scd2_settings.postgres_url)
 
-    # -- pick a target patient_id --------------------------------------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -184,7 +167,6 @@ def test_raw_patient_consents_scd2_history_preserved_on_consent_flip(
     target_pid: str = row[0]
     original_value: bool = bool(row[1])
 
-    # -- flip the consent_research flag in source ----------------------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -196,7 +178,6 @@ def test_raw_patient_consents_scd2_history_preserved_on_consent_flip(
 
     _run_ingest(scd2_settings)
 
-    # -- assert SCD2 history -------------------------------------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         closed: int = conn.execute(
             "SELECT count(*) FROM raw.patient_consents "  # noqa: S608
@@ -223,7 +204,7 @@ def test_raw_patient_consents_scd2_history_preserved_on_consent_flip(
 
 
 @pytest.mark.xfail(
-    reason="Requires item 1.19 snapshot-truncation guard (optional, deferred)",
+    reason="Snapshot-truncation guard not yet implemented; remove this mark when the guard is added.",
     strict=False,
 )
 def test_raw_patient_consents_full_snapshot_guard_aborts_on_truncation(
@@ -235,7 +216,7 @@ def test_raw_patient_consents_full_snapshot_guard_aborts_on_truncation(
     partial read that would otherwise cause phantom ``_dlt_valid_to`` entries
     if not aborted.
 
-    Remove the ``xfail`` mark and implement the body when item 1.19 is done.
+    Remove the ``xfail`` mark and implement the body when the snapshot-truncation guard is implemented.
 
     Args:
         scd2_settings: Isolated settings with temp DuckDB and DLT state dir.

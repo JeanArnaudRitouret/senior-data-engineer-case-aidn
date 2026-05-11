@@ -31,8 +31,6 @@ def _make_resource() -> Any:
     return resource
 
 
-# --- Column-hint invariants (mirrors test_appointments_resource.py) ---
-
 
 def test_patients_apply_hints_hard_delete_false() -> None:
     """apply_hints overrides pg_replication default hard_delete=True on deleted_ts."""
@@ -54,8 +52,7 @@ def test_patients_no_static_dedup_sort_column() -> None:
     """Column hints must declare zero dedup_sort columns.
 
     pg_replication adds dedup_sort to lsn dynamically during schema evolution.
-    A second static dedup_sort causes SchemaCorruptedException on the second run
-    (per 1.27a).
+    A second static dedup_sort causes SchemaCorruptedException on the second run.
     """
     resource = _make_resource()
     cols: dict[str, Any] = resource.columns
@@ -66,11 +63,8 @@ def test_patients_no_static_dedup_sort_column() -> None:
         )
 
 
-# --- _strip_name invariants ---
-
-
 def test_patients_strip_name_removes_name_key() -> None:
-    """_strip_name drops the name key from a WAL event dict (Q40, P.2)."""
+    """_strip_name drops the name key from a WAL event dict."""
     row: dict[str, Any] = {"patient_id": "pat-1", "name": "Alice", "postcode": "0000"}
     result = _strip_name(row)
     assert "name" not in result
@@ -85,11 +79,8 @@ def test_patients_strip_name_noop_when_absent() -> None:
     assert result == {"patient_id": "pat-1", "deleted_ts": "2024-01-01T00:00:00"}
 
 
-# --- Model invariants ---
-
-
 def test_patients_model_has_lsn_and_deleted_ts_fields() -> None:
-    """Patient carries lsn and deleted_ts (Phase Patient CDC); is_deleted never materialized at raw (Q36)."""
+    """Confirms that lsn and deleted_ts are present on Patient (CDC columns added by pg_replication). is_deleted is intentionally absent — downstream models derive it from deleted_ts IS NOT NULL rather than materialising it on every raw row."""
     from aidn.models.ingest import Patient
 
     assert "lsn" in Patient.model_fields

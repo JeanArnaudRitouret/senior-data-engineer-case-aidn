@@ -67,13 +67,16 @@ def run_pipeline(
 ) -> str:
     """Run a dlt source through the pipeline and return the committed load_id.
 
-    Primary failure contract: ``PipelineStepFailed`` is dlt's default raise on
-    terminal job failure (dlt-standards Rule 7). ``raise_on_failed_jobs`` is not
-    overridden, so the ``has_failed_jobs`` path is not the primary contract.
+    Primary failure contract: dlt raises ``PipelineStepFailed`` on terminal job
+    failure; ``raise_on_failed_jobs`` is not overridden, so the ``has_failed_jobs``
+    path is not the primary contract. Raises on failed jobs — dlt marks a package
+    as failed but does not raise by default; explicit check here so callers cannot
+    silently miss partial load failures.
 
-    ``LoadInfo.loads_ids`` is handled with explicit 0 / 1 / N branching
-    (dlt-standards Rule 9) — a multi-package run fails loudly rather than
-    silently adopting an arbitrary package id.
+    ``LoadInfo.loads_ids`` is handled with explicit 0 / 1 / N branching — a
+    multi-package run fails loudly rather than silently adopting an arbitrary
+    package id. Raises if dlt produced more than one load package in a single run
+    — this is unexpected for a sequential pipeline and indicates a state anomaly.
 
     Args:
         source: dlt source or resource to load into ``raw.*``.

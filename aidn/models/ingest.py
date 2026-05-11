@@ -5,8 +5,8 @@ schema_contract freeze violations surface as rich ValidationError messages befor
 dlt's own schema_contract check can fire.
 
 patient.name (direct identifier) is dropped at the dlt extraction boundary and
-never enters raw. postcode (quasi-identifier) is retained in raw and anonymised
-in Phase 5.5. provider.name is a non-patient identifier and is retained as-is.
+never enters raw. postcode (quasi-identifier) is retained in raw and removed by
+the GDPR erasure sweep. provider.name is a non-patient identifier and is retained as-is.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ class Provider(BaseModel):
         specialty: Clinical specialty; None when not recorded.
         lsn: WAL log sequence number (pg_lsn converted to int by dlt).
         deleted_ts: Timestamp of the WAL delete event; None when row is live.
-            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -49,7 +49,7 @@ class Patient(BaseModel):
         updated_at: Source-side last-modified timestamp; None on DELETE WAL events
             which may not carry non-key columns.
         deleted_ts: Timestamp of the WAL delete event; None when row is live.
-            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -80,7 +80,7 @@ class Appointment(BaseModel):
         ingested_at: Pipeline ingestion timestamp; dedup_sort column in raw.
         lsn: WAL log sequence number (pg_lsn converted to int by dlt).
         deleted_ts: Timestamp of the WAL delete event; None when row is live.
-            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -98,7 +98,7 @@ class Appointment(BaseModel):
 
 
 class PatientConsent(BaseModel):
-    """A patient consent snapshot row for the Regime A SCD2 resource.
+    """A patient consent snapshot row for the full-snapshot SCD2 resource.
 
     Full-SELECT snapshot yielded on every run; dlt auto-closes absent rows via
     _dlt_valid_to. No source updated_at — _dlt_loaded_at serves as the boundary

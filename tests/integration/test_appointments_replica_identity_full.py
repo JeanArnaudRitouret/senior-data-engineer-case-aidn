@@ -29,10 +29,6 @@ from aidn.logging_setup import bind_run_id, configure_logging, get_logger
 _logger = get_logger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def replica_identity_settings(
@@ -48,10 +44,6 @@ def replica_identity_settings(
     monkeypatch.setenv("DLT_DATA_DIR", str(tmp_path / "dlt"))
     return Settings()  # type: ignore[call-arg]
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _bootstrap_and_ingest(settings: Settings) -> None:
@@ -75,10 +67,6 @@ def _run_ingest(settings: Settings) -> None:
     run_log = bind_run_id(_logger, "test-replica-id-run")
     run_pipeline(aidn_source(settings), settings=settings, run_logger=run_log)
 
-
-# ---------------------------------------------------------------------------
-# Test
-# ---------------------------------------------------------------------------
 
 
 def test_appointments_hard_delete_surfaces_as_is_deleted(
@@ -105,7 +93,6 @@ def test_appointments_hard_delete_surfaces_as_is_deleted(
     db_path = str(replica_identity_settings.duckdb_path)
     dsn = str(replica_identity_settings.postgres_url)
 
-    # -- pick a target event_id from the seeded appointments table ------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -115,7 +102,6 @@ def test_appointments_hard_delete_surfaces_as_is_deleted(
     assert row is not None, "seed data missing — run 'make up && make seed' first"
     target_event_id: str = row[0]
 
-    # -- baseline: total row count before delete ------------------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         total_before: int = conn.execute(
             "SELECT count(*) FROM raw.appointments"  # noqa: S608
@@ -132,7 +118,6 @@ def test_appointments_hard_delete_surfaces_as_is_deleted(
         f"got {live_before}"
     )
 
-    # -- hard DELETE at source ------------------------------------------------
     with psycopg2.connect(dsn) as pg_conn:
         with pg_conn.cursor() as cur:
             cur.execute(
@@ -141,7 +126,6 @@ def test_appointments_hard_delete_surfaces_as_is_deleted(
 
     _run_ingest(replica_identity_settings)
 
-    # -- assert soft-delete in raw --------------------------------------------
     with duckdb.connect(db_path, read_only=True) as conn:
         deleted_row_count: int = conn.execute(
             "SELECT count(*) FROM raw.appointments "  # noqa: S608

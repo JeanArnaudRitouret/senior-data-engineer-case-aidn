@@ -63,16 +63,13 @@ sources:
           pii_table: true
         columns:
           - name: patient_id
-            description: Pseudonymous patient key — no PK constraint in source; multiple rows per ID represent SCD-style updates.
+            description: Pseudonymous patient key — no PK constraint in source; multiple rows per ID represent SCD-style updates. Uniqueness asserted at intm.patients after SCD1 collapse.
             meta:
               is_pii: true
               pii_class: pseudonymous_key
               erasure_strategy: retain
             tests:
               - not_null
-              - unique:
-                  config:
-                    severity: warn
           - name: name
             description: Patient full name — direct PII identifier.
             meta:
@@ -132,7 +129,7 @@ sources:
           legally_significant: true
         columns:
           - name: patient_id
-            description: Pseudonymous patient key — FK to patients; PK in source.
+            description: Pseudonymous patient key — FK to patients; PK in source (unique only among active rows; SCD2 produces multiple rows per patient_id).
             meta:
               is_pii: true
               pii_class: pseudonymous_key
@@ -142,6 +139,7 @@ sources:
               - unique:
                   config:
                     severity: warn
+                    where: "_dlt_valid_to is null"
           - name: consent_research
             description: Patient opted in to research use.
             tests:

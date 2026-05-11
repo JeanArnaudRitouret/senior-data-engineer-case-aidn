@@ -24,7 +24,7 @@ class Provider(BaseModel):
         specialty: Clinical specialty; None when not recorded.
         lsn: WAL log sequence number (pg_lsn converted to int by dlt).
         deleted_ts: Timestamp of the WAL delete event; None when row is live.
-        is_deleted: Derived flag: True when deleted_ts is not None.
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -33,8 +33,7 @@ class Provider(BaseModel):
     name: str
     specialty: str | None
     lsn: int
-    deleted_ts: datetime | None
-    is_deleted: bool
+    deleted_ts: datetime | None = None
 
 
 class Patient(BaseModel):
@@ -75,7 +74,7 @@ class Appointment(BaseModel):
         ingested_at: Pipeline ingestion timestamp; dedup_sort column in raw.
         lsn: WAL log sequence number (pg_lsn converted to int by dlt).
         deleted_ts: Timestamp of the WAL delete event; None when row is live.
-        is_deleted: Derived flag: True when deleted_ts is not None.
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -89,8 +88,7 @@ class Appointment(BaseModel):
     event_timestamp: datetime
     ingested_at: datetime
     lsn: int
-    deleted_ts: datetime | None
-    is_deleted: bool
+    deleted_ts: datetime | None = None
 
 
 class PatientConsent(BaseModel):

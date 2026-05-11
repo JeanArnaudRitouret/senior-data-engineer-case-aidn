@@ -1,4 +1,4 @@
-.PHONY: up down seed bootstrap ingest demo tls-cert lint typecheck test
+.PHONY: up down seed bootstrap ingest demo cdc-smoke tls-cert lint typecheck test clear-dlt-state
 
 up:
 	docker compose up -d --wait
@@ -22,6 +22,12 @@ bootstrap:
 ingest:
 	poetry run aidn ingest
 
+cdc-smoke: ## Run CDC smoke test — assumes `make demo` already ran
+	poetry run python scripts/cdc_smoke.py
+
+clear-dlt-state: ## Reset persisted dlt pipeline schema — run before `make demo` after schema-level config changes
+	rm -rf .dlt/pipelines/aidn_ingest/ aidn.duckdb
+
 lint:
 	poetry run ruff check aidn/ tests/
 
@@ -32,5 +38,4 @@ test:
 	poetry run pytest tests/
 
 demo: tls-cert up seed bootstrap ingest
-	poetry run duckdb $${DUCKDB_PATH:-aidn.duckdb} \
-	  -c "SELECT status, count(*) FROM raw._dlt_loads GROUP BY 1;"
+	poetry run python -c "import duckdb; conn = duckdb.connect('$${DUCKDB_PATH:-aidn.duckdb}', read_only=True); print(conn.execute('SELECT status, count(*) FROM raw._dlt_loads GROUP BY 1').fetchall())"

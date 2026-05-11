@@ -4,8 +4,9 @@ All models are frozen and reject unexpected columns (extra="forbid") so that
 schema_contract freeze violations surface as rich ValidationError messages before
 dlt's own schema_contract check can fire.
 
-PII fields (name, postcode) are intentionally present at this layer — raw is the
-archive tier. Direct identifiers are stripped at the raw → staging boundary.
+patient.name (direct identifier) is dropped at the dlt extraction boundary and
+never enters raw. postcode (quasi-identifier) is retained in raw and anonymised
+in Phase 5.5. provider.name is a non-patient identifier and is retained as-is.
 """
 
 from __future__ import annotations
@@ -37,23 +38,28 @@ class Provider(BaseModel):
 
 
 class Patient(BaseModel):
-    """A patient snapshot row emitted by the sql_database incremental resource.
+    """A patient WAL event emitted by the pg_replication CDC resource.
 
     Attributes:
         patient_id: Pseudonymous stable key linking records across tables.
-        name: Patient display name. Direct identifier — PII, do not log.
+        lsn: WAL log sequence number (pg_lsn converted to int by dlt); None on
+            snapshot rows which are loaded before CDC begins.
         primary_provider_id: FK to providers; None when unassigned.
         postcode: Geographic quasi-identifier — PII, do not log.
-        updated_at: Source-side watermark column driving incremental cursor.
+        updated_at: Source-side last-modified timestamp; None on DELETE WAL events
+            which may not carry non-key columns.
+        deleted_ts: Timestamp of the WAL delete event; None when row is live.
+            ``deleted_ts IS NOT NULL`` is the sole delete signal at raw (Q36).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     patient_id: str
-    name: str
-    primary_provider_id: str | None
-    postcode: str | None
-    updated_at: datetime
+    lsn: int | None = None
+    primary_provider_id: str | None = None
+    postcode: str | None = None
+    updated_at: datetime | None = None
+    deleted_ts: datetime | None = None
 
 
 class Appointment(BaseModel):

@@ -1,0 +1,13 @@
+version: 2
+
+seeds:
+  - name: erasure_requests
+    description: "GDPR Art. 17 right-to-erasure control table. One row per controller-triggered deletion request. erased_at is stamped by purge_erased_patients after the hard-delete sweep completes."
+    columns:
+      - name: patient_id
+        description: "Pseudonymous patient key (TEXT). FK to raw.patients, raw.appointments, raw.patient_consents."
+        tests:
+          - unique
+          - not_null
+      - name: erased_at
+        description: "UTC timestamp stamped by purge_erased_patients once the hard-delete sweep for this patient_id completes. NULL means the request is pending."

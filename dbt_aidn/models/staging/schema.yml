@@ -1,0 +1,125 @@
+version: 2
+
+models:
+  - name: stg_appointments
+    description: "1:1 typed projection of raw.appointments; _at timestamps renamed to _time."
+    columns:
+      - name: event_id
+        description: Source event ID — not a PK; at-least-once duplicates expected.
+      - name: appointment_id
+        description: Business key — stable across status-change events.
+      - name: patient_id
+        description: FK to stg_patients; pseudonymous patient key.
+        meta:
+          is_pii: true
+          pii_class: pseudonymous_key
+          erasure_strategy: retain
+        tests:
+          - relationships:
+              to: ref('stg_patients')
+              field: patient_id
+              config:
+                severity: warn
+      - name: provider_id
+        description: FK to stg_providers.
+        tests:
+          - relationships:
+              to: ref('stg_providers')
+              field: provider_id
+              config:
+                severity: error
+      - name: scheduled_time
+        description: When the appointment was booked (cast from scheduled_at).
+      - name: status
+        description: "Appointment lifecycle status: scheduled → completed/cancelled/no_show."
+      - name: event_time
+        description: When the status-change event occurred (cast from event_timestamp).
+      - name: ingested_time
+        description: Watermark — when the source emitted the row to the pipeline (cast from ingested_at).
+      - name: lsn
+        description: WAL log-sequence number from pg_replication.
+      - name: deleted_time
+        description: Set when source row is physically deleted; NULL for live rows (cast from deleted_ts).
+      - name: _dlt_load_id
+        description: dlt load package identifier.
+      - name: _dlt_id
+        description: dlt row hash.
+
+  - name: stg_patients
+    description: "1:1 typed projection of raw.patients; name excluded at ingest (GDPR Art. 5(1)(c)); postcode anonymised in Phase 5.5."
+    columns:
+      - name: patient_id
+        description: Pseudonymous patient key.
+        meta:
+          is_pii: true
+          pii_class: pseudonymous_key
+          erasure_strategy: retain
+      - name: primary_provider_id
+        description: FK to stg_providers; nullable.
+        tests:
+          - relationships:
+              to: ref('stg_providers')
+              field: provider_id
+              config:
+                severity: error
+                where: "primary_provider_id is not null"
+      - name: postcode
+        description: 4-digit postcode — quasi-identifier PII.
+        meta:
+          is_pii: true
+          pii_class: quasi_identifier
+          erasure_strategy: anonymize
+      - name: updated_time
+        description: When the patient record was last modified (cast from updated_at).
+      - name: _dlt_load_id
+        description: dlt load package identifier.
+      - name: _dlt_id
+        description: dlt row hash.
+
+  - name: stg_providers
+    description: "1:1 typed projection of raw.providers; deleted rows retained for historical fact joins."
+    columns:
+      - name: provider_id
+        description: Provider primary key.
+      - name: name
+        description: Provider display name.
+      - name: specialty
+        description: "Clinical specialty: GP, Cardiology, Pediatrics, Dermatology, Oncology."
+      - name: lsn
+        description: WAL log-sequence number from pg_replication.
+      - name: deleted_time
+        description: Set when source row is physically deleted; NULL for live rows (cast from deleted_ts).
+      - name: _dlt_load_id
+        description: dlt load package identifier.
+      - name: _dlt_id
+        description: dlt row hash.
+
+  - name: stg_patient_consents
+    description: "1:1 typed projection of raw.patient_consents; SCD2 history retained — _dlt_valid_to not filtered."
+    columns:
+      - name: patient_id
+        description: FK to stg_patients; pseudonymous patient key.
+        meta:
+          is_pii: true
+          pii_class: pseudonymous_key
+          erasure_strategy: retain
+        tests:
+          - relationships:
+              to: ref('stg_patients')
+              field: patient_id
+              config:
+                severity: warn
+      - name: consent_research
+        description: Patient opted in to research use.
+      - name: consent_marketing
+        description: Patient opted in to marketing communications.
+      - name: consent_partner_share
+        description: Patient opted in to data sharing with partners.
+      - name: _dlt_valid_from
+        description: SCD2 validity start — when this consent record became active.
+      - name: _dlt_valid_to
+        description: SCD2 validity end — NULL means currently active; history not filtered at this layer.
+      - name: _dlt_load_id
+        description: dlt load package identifier.
+      - name: _dlt_id
+        description: dlt row hash.

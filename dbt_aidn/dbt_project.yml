@@ -1,0 +1,33 @@
+name: dbt_aidn
+version: '1.0.0'
+config-version: 2
+
+profile: aidn
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+analysis-paths: ["analyses"]
+snapshot-paths: ["snapshots"]
+docs-paths: ["docs"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+seeds:
+  dbt_aidn:
+    erasure_requests:
+      +schema: main
+      +column_types:
+        patient_id: text
+        erased_at: timestamptz
+
+models:
+  dbt_aidn:
+    staging:
+      +schema: staging
+      +materialized: view
+

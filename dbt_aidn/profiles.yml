@@ -1,0 +1,8 @@
+aidn:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('AIDN_DUCKDB_PATH', '../aidn.duckdb') }}"
+      schema: main
+      threads: 4

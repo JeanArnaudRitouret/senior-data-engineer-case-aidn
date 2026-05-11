@@ -98,22 +98,26 @@ class Appointment(BaseModel):
 
 
 class PatientConsent(BaseModel):
-    """A patient consent snapshot row for the full-snapshot SCD2 resource.
+    """A patient consent CDC event row emitted by the pg_replication resource.
 
-    Full-SELECT snapshot yielded on every run; dlt auto-closes absent rows via
-    _dlt_valid_to. No source updated_at — _dlt_loaded_at serves as the boundary
-    timestamp.
+    WAL DELETE events carry only patient_id, lsn, and deleted_ts — consent flag
+    columns are absent. Flags are optional to prevent Tier-1 drops on valid
+    DELETE events.
 
     Attributes:
-        patient_id: FK to patients; SCD2 key.
-        consent_research: Patient has consented to use of data for research.
-        consent_marketing: Patient has consented to marketing communications.
-        consent_partner_share: Patient has consented to sharing with partners.
+        patient_id: FK to patients; pseudonymous key.
+        consent_research: Patient consented to research use; None on DELETE events.
+        consent_marketing: Patient consented to marketing; None on DELETE events.
+        consent_partner_share: Patient consented to partner sharing; None on DELETE events.
+        lsn: WAL log sequence number; merge key and event-ordering column.
+        deleted_ts: Populated on WAL DELETE events; NULL on INSERT/UPDATE.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     patient_id: str
-    consent_research: bool
-    consent_marketing: bool
-    consent_partner_share: bool
+    consent_research: bool | None = None
+    consent_marketing: bool | None = None
+    consent_partner_share: bool | None = None
+    lsn: int | None = None
+    deleted_ts: datetime | None = None

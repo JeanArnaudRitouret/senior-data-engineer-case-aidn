@@ -113,7 +113,7 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
                 "SELECT count(*) FROM raw.patients"  # noqa: S608
             ).fetchone()[0],  # type: ignore[index]
             "patient_consents_current": conn.execute(
-                "SELECT count(*) FROM raw.patient_consents WHERE _dlt_valid_to IS NULL"  # noqa: S608
+                "SELECT count(DISTINCT patient_id) FROM raw.patient_consents WHERE deleted_ts IS NULL"  # noqa: S608
             ).fetchone()[0],  # type: ignore[index]
         }
     load_count_before_kill = _count_dlt_loads(db_path)
@@ -154,7 +154,7 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
             "SELECT count(*) FROM raw.patients"  # noqa: S608
         ).fetchone()[0]  # type: ignore[index]
         consents_current = conn.execute(
-            "SELECT count(*) FROM raw.patient_consents WHERE _dlt_valid_to IS NULL"  # noqa: S608
+            "SELECT count(DISTINCT patient_id) FROM raw.patient_consents WHERE deleted_ts IS NULL"  # noqa: S608
         ).fetchone()[0]  # type: ignore[index]
 
         # merge tables — strictly idempotent
@@ -167,9 +167,9 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
             f"{baseline['appointments']} → {appointments_count}"
         )
 
-        # scd2 — current-row count stable
+        # CDC event log — active patient count stable after crash+resume
         assert consents_current == baseline["patient_consents_current"], (
-            f"raw.patient_consents current rows changed: "
+            f"raw.patient_consents active patient count changed: "
             f"{baseline['patient_consents_current']} → {consents_current}"
         )
 
@@ -196,14 +196,13 @@ def test_pipeline_resumes_after_kill(crash_settings: Settings) -> None:
 
         consent_dups = conn.execute(
             "SELECT count(*) FROM ("
-            "  SELECT patient_id FROM raw.patient_consents"
-            "  WHERE _dlt_valid_to IS NULL"
-            "  GROUP BY patient_id HAVING count(*) > 1"
+            "  SELECT patient_id, lsn FROM raw.patient_consents"
+            "  GROUP BY patient_id, lsn HAVING count(*) > 1"
             ")"
         ).fetchone()
         assert consent_dups is not None
         assert consent_dups[0] == 0, (
-            f"Duplicate current patient_consents rows after crash+resume: "
+            f"Duplicate (patient_id, lsn) pairs in raw.patient_consents after crash+resume: "
             f"{consent_dups[0]}"
         )
 

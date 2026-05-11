@@ -59,7 +59,7 @@ def _row_counts(db_path: str) -> dict[str, int]:
                 "SELECT count(*) FROM raw.appointments"  # noqa: S608
             ).fetchone()[0],  # type: ignore[index]
             "patient_consents_current": conn.execute(
-                "SELECT count(*) FROM raw.patient_consents WHERE _dlt_valid_to IS NULL"  # noqa: S608
+                "SELECT count(DISTINCT patient_id) FROM raw.patient_consents WHERE deleted_ts IS NULL"  # noqa: S608
             ).fetchone()[0],  # type: ignore[index]
             "dlt_loads": conn.execute(
                 "SELECT count(*) FROM raw._dlt_loads WHERE status = 0"  # noqa: S608
@@ -109,12 +109,12 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
         f"{counts_after_run1['appointments']} → {counts_after_run2['appointments']}"
     )
 
-    # scd2 table — current-row count must not change (no new _dlt_valid_to mutations).
+    # CDC event log — active patient count (distinct patient_id WHERE deleted_ts IS NULL) must not change.
     assert (
         counts_after_run2["patient_consents_current"]
         == counts_after_run1["patient_consents_current"]
     ), (
-        f"raw.patient_consents current rows changed on second run: "
+        f"raw.patient_consents active patient count changed on second run: "
         f"{counts_after_run1['patient_consents_current']} → "
         f"{counts_after_run2['patient_consents_current']}"
     )
@@ -145,17 +145,16 @@ def test_pipeline_idempotent_second_run(idempotent_settings: Settings) -> None:
             f"Duplicate provider_id rows found after second run: {providers_dups[0]}"
         )
 
-        # SCD2: only current rows (valid_to IS NULL) should be unique per patient_id.
+        # CDC event log: (patient_id, lsn) pairs must be unique — merge on lsn is idempotent.
         consent_dups = conn.execute(
             "SELECT count(*) FROM ("
-            "  SELECT patient_id FROM raw.patient_consents"
-            "  WHERE _dlt_valid_to IS NULL"
-            "  GROUP BY patient_id HAVING count(*) > 1"
+            "  SELECT patient_id, lsn FROM raw.patient_consents"
+            "  GROUP BY patient_id, lsn HAVING count(*) > 1"
             ")"
         ).fetchone()
         assert consent_dups is not None
         assert consent_dups[0] == 0, (
-            f"Duplicate current patient_consents rows found after second run: "
+            f"Duplicate (patient_id, lsn) pairs in raw.patient_consents after second run: "
             f"{consent_dups[0]}"
         )
 

@@ -124,39 +124,30 @@ sources:
 
       - name: patient_consents
         meta:
-          loaded_by: dlt-scd2
+          loaded_by: dlt-pg_replication
           pii_table: true
           legally_significant: true
+        description: >
+          CDC event log — one row per WAL event (INSERT / UPDATE / DELETE).
+          Multiple rows per patient_id. SCD2 reconstruction deferred to dbt intm layer.
         columns:
           - name: patient_id
-            description: Pseudonymous patient key — FK to patients; PK in source (unique only among active rows; SCD2 produces multiple rows per patient_id).
+            description: Pseudonymous patient key; multiple rows per patient_id expected.
             meta:
               is_pii: true
               pii_class: pseudonymous_key
               erasure_strategy: retain
             tests:
               - not_null
-              - unique:
-                  config:
-                    severity: warn
-                    where: "_dlt_valid_to is null"
+          - name: lsn
+            description: WAL log sequence number — merge key; NULL on bootstrap snapshot rows.
           - name: consent_research
-            description: Patient opted in to research use.
-            tests:
-              - not_null
+            description: Patient opted in to research use. NULL on DELETE events.
           - name: consent_marketing
-            description: Patient opted in to marketing communications.
-            tests:
-              - not_null
+            description: Patient opted in to marketing communications. NULL on DELETE events.
           - name: consent_partner_share
-            description: Patient opted in to data sharing with partners.
-            tests:
-              - not_null
-          - name: _dlt_valid_from
-            description: SCD2 validity start — when this consent record became active.
-          - name: _dlt_valid_to
-            description: SCD2 validity end — NULL means the record is currently active.
+            description: Patient opted in to data sharing with partners. NULL on DELETE events.
+          - name: deleted_ts
+            description: Populated on WAL DELETE events; NULL on INSERT and UPDATE events.
           - name: _dlt_load_id
             description: dlt load package identifier.
-          - name: _dlt_id
-            description: dlt row hash.

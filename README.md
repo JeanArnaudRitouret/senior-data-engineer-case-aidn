@@ -96,7 +96,7 @@ WHERE provider_id = (SELECT provider_id FROM providers
 | `raw.providers` | Inserted row present; updated row has new `specialty`; deleted row **preserved** with `deleted_ts IS NOT NULL` (soft-delete, not removed) |
 | `raw.appointments` | Inserted event present; updated event has new `status` and `ingested_at`; deleted event has `deleted_ts IS NOT NULL` |
 | `raw.patients` | New WAL event emitted as a new lsn-distinct row (prior row retained); WAL UPDATE delivers a new row with `updated_at` and a unique `lsn` |
-| `raw.patient_consents` | Deleted patient: prior open SCD2 row closed (`_dlt_valid_to` set), no new row opened; consent flip: old row closed, new row opened with updated flag |
+| `raw.patient_consents` | Deleted patient: WAL DELETE event row present with `deleted_ts IS NOT NULL` (prior rows retained — event log is append-only); consent flip: new WAL UPDATE event row appended with higher `lsn` and updated flag |
 
 #### Manual verification queries (copy-pasteable into `duckdb aidn.duckdb`)
 
@@ -104,10 +104,8 @@ WHERE provider_id = (SELECT provider_id FROM providers
 -- Soft-deleted provider still visible (row preserved, not removed):
 SELECT provider_id, deleted_ts FROM raw.providers WHERE deleted_ts IS NOT NULL;
 
--- SCD2 closure on patient_consents (deleted patient row retired):
-SELECT patient_id, consent_research, _dlt_valid_from, _dlt_valid_to
-FROM raw.patient_consents
-WHERE _dlt_valid_to IS NOT NULL;
+-- CDC DELETE event on patient_consents (deleted patient: row preserved with deleted_ts set):
+SELECT patient_id, lsn, deleted_ts FROM raw.patient_consents WHERE deleted_ts IS NOT NULL;
 
 -- Appointment soft-delete:
 SELECT event_id, deleted_ts FROM raw.appointments WHERE deleted_ts IS NOT NULL LIMIT 5;
@@ -156,7 +154,8 @@ The `purge_erased_patients` macro hard-deletes all raw rows for that patient acr
 
 Healthcare regulations require an auditable history of every change to patient and consent records, on top of the analytical need for point-in-time queries. This drives different retention strategies per table:
 
-- **`patients`, `patient_consents`, `appointments`** — SCD2 + soft-delete. Every change appends a new row; deleted rows are flagged (`deleted_ts` / `_dlt_valid_to`) but never removed. The full history is retained for audit.
+- **`patients`, `appointments`** — full event history retained in raw via lsn-distinct WAL rows (pg_replication CDC). Deleted rows are flagged (`deleted_ts IS NOT NULL`) but never removed. The full history is retained for audit.
+- **`patient_consents`** — pg_replication CDC event log: one row per WAL event (INSERT/UPDATE/DELETE), ordered by `lsn`. DELETE events produce a row with `deleted_ts IS NOT NULL`; prior rows are retained. SCD2 validity windows are reconstructed at the `intm` layer (deferred — `int_patient_consents_scd2`), not in raw.
 - **`providers`** — soft-delete only (no SCD2). There is no regulatory audit-trail requirement for provider records — only an analytical need to filter active providers. This means prior `name` or `specialty` values are **not retained**: a provider name change overwrites in place. If a prior value is ever needed for recovery, the Postgres WAL backup is the only source; the warehouse cannot reconstruct it.
 
 ---
@@ -177,7 +176,7 @@ This pipeline processes Norwegian healthcare data and is subject to GDPR and Nor
 
 #### Consent-flag enforcement
 
-Consent flags (`consent_research`, `consent_marketing`, `consent_partner_share`) are tracked as SCD2 history in `raw.patient_consents`. A flag flip closes the prior row (`_dlt_valid_to` set) and opens a new one — the full audit trail is retained.
+Consent flags (`consent_research`, `consent_marketing`, `consent_partner_share`) are tracked as a CDC event log in `raw.patient_consents`. Each WAL event (INSERT/UPDATE/DELETE) lands as a separate row identified by `lsn`. A flag flip produces a new event row with the updated value; the prior row is retained — the full audit trail is preserved in the event log. SCD2 validity windows (`valid_from`/`valid_to`) are reconstructed at the `intm` layer (deferred — `int_patient_consents_scd2`).
 
 Consent enforcement at the analytical layer (`marts` and `serve`) is deferred — the `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented. The design specifies a `consented(flag_column)` macro applied at two layers for defense-in-depth, but that macro and the dependent models are not currently on disk. When implemented, enforcement would follow this design:
 
@@ -212,8 +211,7 @@ The following controls are absent from this case-study implementation and would 
 ```
 Postgres (OLTP)
     │
-    │  dlt-hub: pg_replication (appointments, providers, patients)
-    │           sql_table full-scan (patient_consents — SCD2)
+    │  dlt-hub: pg_replication (appointments, providers, patients, patient_consents)
     │           schema_contract=freeze on all four tables
     │           Pydantic v2 row validation (two-tier: drop+WARN / ERROR+raise)
     ▼
@@ -227,7 +225,7 @@ raw.* (DuckDB — dlt-managed)
     │  _dlt_pipeline_state: incremental cursors per table
     │  appointments / patients: full event history retained (lsn-distinct WAL rows via pg_replication)
     │  providers: latest state per provider_id (merge on provider_id)
-    │  patient_consents: SCD2 history (full-snapshot; _dlt_valid_to marks retired rows)
+    │  patient_consents: CDC event log (one row per WAL event; lsn as merge key)
     ▼
 staging.stg_* (dbt views — 1-1 typed projection of raw; no dedup, no business logic)
 ```
@@ -245,15 +243,15 @@ staging.stg_* (dbt views — 1-1 typed projection of raw; no dedup, no business 
 
 ### 3.3 Ingest layer mechanics
 
-**Source definition.** One `@dlt.source` factory (`aidn_source`, dlt source name `"aidn_ingest"`) returning four resource builders — one per source table. The resource builders wrap upstream `pg_replication.replication_resource` or `sql_table` objects; they are not themselves `@dlt.resource`-decorated. A single `pipeline.run(aidn_source())` call produces one `_dlt_loads` row per committed run. Individual tables can be re-run via `aidn_source().with_resources("<table>")`.
+**Source definition.** One `@dlt.source` factory (`aidn_source`, dlt source name `"aidn_ingest"`) returning four resource builders — one per source table. Each resource builder wraps a `pg_replication.replication_resource`; none uses `sql_table`. They are not themselves `@dlt.resource`-decorated. A single `pipeline.run(aidn_source())` call produces one `_dlt_loads` row per committed run. Individual tables can be re-run via `aidn_source().with_resources("<table>")`.
 
 **`make bootstrap` — first-time initialisation.** Must be run once per clean deployment (or after `make clear-dlt-state`):
 
-1. Creates one dedicated replication slot and publication per CDC table (`aidn_providers_slot`, `aidn_appointments_slot`, `aidn_patients_slot`).
+1. Creates one dedicated replication slot and publication per CDC table (`aidn_providers_slot`, `aidn_appointments_slot`, `aidn_patients_slot`, `aidn_patient_consents_slot`).
 2. Calls `init_replication(persist_snapshots=True)` — uses a Postgres-native exported snapshot for an atomic handoff between snapshot LSN and WAL start: zero gap, zero overlap.
 3. Slot-existence pre-check via `pg_replication_slots` prevents double-initialisation; if a slot already exists, bootstrap logs `bootstrap_skip reason=slot_exists` and returns without error.
 
-**`make ingest` — steady-state.** Each CDC resource (`appointments`, `providers`, `patients`) consumes its dedicated WAL slot independently via pg_replication, with `merge` disposition on `lsn`. `patient_consents` runs a full `sql_table` SELECT every run — no cursor, because no source timestamp exists.
+**`make ingest` — steady-state.** All four CDC resources (`appointments`, `providers`, `patients`, `patient_consents`) consume their dedicated WAL slots independently via pg_replication, with `merge` disposition on `lsn`. Each resource has its own slot and confirmed flush LSN, giving independent cadence and failure isolation.
 
 **Schema contract.** All four tables use `schema_contract={"columns": "freeze"}`. An unexpected source column raises a pipeline-blocking `PipelineStepFailed`; it is never silently absorbed.
 
@@ -266,14 +264,14 @@ staging.stg_* (dbt views — 1-1 typed projection of raw; no dedup, no business 
 | `appointments` | `merge` on `event_id` (pg_replication) | WAL events (`lsn` ordering, no cursor) | `deleted_ts` set; row retained (soft-delete) | Full event history (status-change events are separate rows) |
 | `patients` | `merge` on `lsn` (pg_replication) | WAL events (`lsn` — no source-timestamp cursor) | Source append-only contract; GDPR erasure via dbt macro | Full event history via lsn-distinct WAL rows |
 | `providers` | `merge` on `provider_id` (pg_replication) | WAL events only | `deleted_ts` set; row retained (soft-delete) | Latest state per provider (no history) |
-| `patient_consents` | `merge` + `scd2` (full-snapshot, no `merge_key`) | `_dlt_loaded_at` (no source timestamp) | Absent row → `_dlt_valid_to` set; GDPR erasure = separate hard-delete | Full SCD2 history |
+| `patient_consents` | `merge` on `lsn` (pg_replication) | WAL events (lsn ordering) | `deleted_ts` set; row retained (event log append-only); GDPR erasure = hard-delete | Full WAL event history (one row per WAL event) |
 
 **Key notes per table:**
 
 - `appointments`, `providers`, and `patients` all require `REPLICA IDENTITY FULL` — see `seed/init.sql:15,19,22`. Each for a different reason: `appointments` has no Postgres PK; `providers` WAL DEFAULT omits non-PK columns on DELETE (causing `ValidationError` and a silent drop); `patients` has no source PK, so DEFAULT sends no identifying columns on UPDATE/DELETE.
 - `patients.name` is dropped by the `_strip_name` preprocessor in `aidn/ingest/preprocess.py` via `resource.add_map(_strip_name)` before rows reach raw. The `Patient` Pydantic model has no `name` field with `extra="forbid"` as a second guard.
-- `patient_consents` full-snapshot SCD2: dlt closes any row absent from the current SELECT by setting `_dlt_valid_to`; no separate DELETE signal is needed.
-- Each CDC table has its own dedicated slot (`aidn_providers_slot`, `aidn_appointments_slot`, `aidn_patients_slot`) — independent `confirmed_flush_lsn` per table.
+- `patient_consents` WAL DELETE events carry only `patient_id`, `lsn`, and `deleted_ts` — consent flag columns are absent; the Pydantic model types them as `bool | None` so DELETE events do not Tier-1 drop. SCD2 reconstruction (valid_from/valid_to) is deferred to the `intm` layer (`int_patient_consents_scd2`).
+- Each CDC table has its own dedicated slot (`aidn_providers_slot`, `aidn_appointments_slot`, `aidn_patients_slot`, `aidn_patient_consents_slot`) — independent `confirmed_flush_lsn` per table.
 
 ---
 
@@ -290,7 +288,27 @@ Singular test: `tests/test_no_erased_patient_in_raw.sql` verifies that a complet
 - Stamps `erased_at = current_timestamp` on completed requests; idempotent — re-runs are no-ops for already-erased patients.
 - Invoke via `make erasure` (`cd dbt_aidn && poetry run dbt run-operation purge_erased_patients`).
 
-The `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented.
+**Deferred intm layer — `int_patient_consents_scd2`** — `raw.patient_consents` is now an append-only WAL event log (one row per WAL event, ordered by `lsn`). The `intm` layer will reconstruct the SCD2 validity window using a window function:
+
+```sql
+-- int_patient_consents_scd2 (deferred — TO_DO Q.deferred)
+select
+    patient_id,
+    lsn,
+    consent_research, consent_marketing, consent_partner_share,
+    deleted_ts,
+    l.inserted_at                                                    as valid_from,
+    coalesce(
+        deleted_ts,                                                  -- WAL DELETE: close at actual deletion moment
+        lead(l.inserted_at) over (partition by patient_id order by lsn)  -- otherwise: close when next event arrived
+    )                                                                as valid_to
+from stg_patient_consents s
+left join raw._dlt_loads l on s._dlt_load_id = l.load_id
+```
+
+`valid_from` is `_dlt_loads.inserted_at` (load time, not source-change time — precision gap equals ingest latency; production fix is adding `updated_at` to the Postgres table). `valid_to = NULL` means the row is currently active. The `marts` layer will enforce consent via the `consented(flag_column)` macro applied to this intm model.
+
+The `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented beyond this design.
 
 ---
 
@@ -311,8 +329,7 @@ The `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented.
 - **Crash-resume** — dlt persists load packages in `DLT_DATA_DIR`. A run that dies mid-flight leaves a partial package; the next `pipeline.run()` resumes automatically from the last committed checkpoint. `DLT_DATA_DIR` must be on persistent storage (not container-local ephemeral).
 - **Idempotent re-runs by disposition:**
   - `merge` — re-processing the same WAL events produces no new rows.
-  - `scd2` (patient_consents) — no `_dlt_valid_to` mutations on re-run of an identical snapshot.
-  - `merge` on `lsn` (patients, pg_replication) — same as appointments: re-processing the same WAL events produces no new rows.
+  - `merge` on `lsn` (patients, patient_consents, pg_replication) — re-processing the same WAL events produces no new rows.
 
 ---
 
@@ -327,6 +344,13 @@ The `intm/`, `marts/`, and `serve/` dbt layers are not yet implemented.
 | **Schema evolution** | dlt `freeze` → `PipelineStepFailed` on new column | Maybe schema registry (although it has big tradeoff too) |
 | **Scaling** | Single-host DuckDB | Partitioned Parquet on object storage; dedicated Postgres read replica for CDC to isolate load from the OLTP primary |
 | **Security** | Single Postgres superuser; self-signed TLS | Least-privilege roles (ingest / consumer / admin); `sslmode=verify-full` with CA-signed cert; column-level encryption for PII at rest; row-level access controls; immutable audit log on every query touching patient-linked models |
-| **CDC slot design** | One replication slot + publication per source table (3 slots for 4 tables) — clean per-table LSN isolation and independent failure domains | At this scale the operational overhead is low and the isolation benefit is real. At production scale with tens of tables, slots multiply: each unconsumed slot holds WAL on disk and a stuck slot can fill the Postgres disk entirely. Production would consolidate to fewer slots (e.g. one slot per consumer group) with slot-lag monitoring and automated alerts on `pg_replication_slots.wal_status = 'lost'` |
+| **CDC slot design** | One replication slot + publication per source table (4 slots for 4 tables) — clean per-table LSN isolation and independent failure domains | At this scale the operational overhead is low and the isolation benefit is real. At production scale with tens of tables, slots multiply: each unconsumed slot holds WAL on disk and a stuck slot can fill the Postgres disk entirely. Production would consolidate to fewer slots (e.g. one slot per consumer group) with slot-lag monitoring and automated alerts on `pg_replication_slots.wal_status = 'lost'` |
+| **`patient_consents` SCD2 `valid_from` precision** | `_dlt_loads.inserted_at` (the dlt load timestamp) is used as `valid_from` in the deferred `int_patient_consents_scd2` model — the closest available proxy when the source table has no `updated_at` column. Two events in the same ingest run share the same `valid_from`; `lsn` ordering resolves ties within a load. The validity gap equals the pipeline's ingest latency. | Add `updated_at TIMESTAMPTZ DEFAULT now()` to the `patient_consents` Postgres table; surface it as a CDC column; use it as `valid_from` directly — eliminates the load-latency gap and makes the SCD2 boundary precise to the millisecond. Decision: `decision-documentation.md` Q43. |
+
+---
+
+## 4. Working with AI
+
+This project was developed using [Claude Code](https://claude.ai/code) (Claude Opus 4) as the primary AI assistant. Every pull request was additionally reviewed by a custom GitHub Actions workflow calling **DeepSeek-reasoner (R1)** with a versioned, project-specific system prompt covering correctness, observability, privacy, robustness, and architecture. The reviewer is advisory — it never blocks merge — but its findings fed directly into subsequent iterations. Having two independent models in the loop caught several design gaps that a single-model workflow would have missed. The overall plan was also reviewed by Gemini via Cursor's agent mode to get a third-model perspective on architecture and sequencing. To enforce project-specific standards consistently across sessions, a set of custom Claude Code skills was created covering data integrity, failure robustness, logging, privacy, and pipeline architecture.
 
 ---

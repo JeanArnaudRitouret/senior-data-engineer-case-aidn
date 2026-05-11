@@ -3,6 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
+from aidn.ingest.validators import _validate_patient_consent
 from aidn.models.ingest import Appointment, Patient, PatientConsent, Provider
 
 _TS = "2024-01-15T10:00:00Z"
@@ -209,6 +210,16 @@ class TestPatientConsent:
         )
         with pytest.raises(ValidationError):
             c.patient_id = "mutated"  # type: ignore[misc]
+
+    def test_validate_patient_consent_accepts_delete_event_payload(self) -> None:
+        """DELETE events carry only key columns; consent flags must not cause Tier-1 drop."""
+        row = {"patient_id": "PT0001", "lsn": 999, "deleted_ts": "2024-01-01T00:00:00"}
+        result = _validate_patient_consent(row)
+        assert result is not None
+        assert result.consent_research is None
+        assert result.consent_marketing is None
+        assert result.consent_partner_share is None
+        assert result.deleted_ts is not None
 
 
 def test_pg_replication_lsn_type_matches_contract() -> None:

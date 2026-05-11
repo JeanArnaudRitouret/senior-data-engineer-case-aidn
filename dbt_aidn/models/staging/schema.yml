@@ -95,10 +95,10 @@ models:
         description: dlt row hash.
 
   - name: stg_patient_consents
-    description: "1:1 typed projection of raw.patient_consents; SCD2 history retained — _dlt_valid_to not filtered."
+    description: "1:1 typed projection of raw.patient_consents CDC event log; one row per WAL event."
     columns:
       - name: patient_id
-        description: FK to stg_patients; pseudonymous patient key.
+        description: FK to stg_patients; pseudonymous patient key. Multiple rows per patient_id expected (one per WAL event).
         meta:
           is_pii: true
           pii_class: pseudonymous_key
@@ -110,16 +110,16 @@ models:
               config:
                 severity: warn
       - name: consent_research
-        description: Patient opted in to research use.
+        description: Patient opted in to research use. NULL on WAL DELETE events.
       - name: consent_marketing
-        description: Patient opted in to marketing communications.
+        description: Patient opted in to marketing communications. NULL on WAL DELETE events.
       - name: consent_partner_share
-        description: Patient opted in to data sharing with partners.
-      - name: _dlt_valid_from
-        description: SCD2 validity start — when this consent record became active.
-      - name: _dlt_valid_to
-        description: SCD2 validity end — NULL means currently active; history not filtered at this layer.
+        description: Patient opted in to data sharing with partners. NULL on WAL DELETE events.
+      - name: lsn
+        description: WAL log sequence number — event-ordering and merge key.
+        tests:
+          - not_null
+      - name: deleted_ts
+        description: Populated on WAL DELETE events. NULL on INSERT and UPDATE.
       - name: _dlt_load_id
         description: dlt load package identifier.
-      - name: _dlt_id
-        description: dlt row hash.

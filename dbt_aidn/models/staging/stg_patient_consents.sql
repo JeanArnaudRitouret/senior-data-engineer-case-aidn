@@ -1,5 +1,7 @@
 {{ config(materialized='view') }}
 
+-- CDC event log — one row per WAL event (INSERT / UPDATE / DELETE).
+
 with
 
 raw_patient_consents as (
@@ -11,8 +13,7 @@ select
     cast(consent_research      as boolean)     as consent_research,
     cast(consent_marketing     as boolean)     as consent_marketing,
     cast(consent_partner_share as boolean)     as consent_partner_share,
-    cast(_dlt_valid_from       as timestamptz) as _dlt_valid_from,
-    cast(_dlt_valid_to         as timestamptz) as _dlt_valid_to,
-    cast(_dlt_load_id          as varchar)     as _dlt_load_id,
-    cast(_dlt_id               as varchar)     as _dlt_id
+    cast(lsn                   as bigint)      as lsn,
+    cast(deleted_ts            as timestamptz) as deleted_ts,
+    cast(_dlt_load_id          as varchar)     as _dlt_load_id
 from raw_patient_consents

@@ -165,7 +165,7 @@ def _read_target_ids(conn: duckdb.DuckDBPyConnection) -> _TargetIds:
         first_consent_patient_id=_fetchone_str(
             conn,
             "SELECT patient_id FROM raw.patient_consents"
-            " WHERE patient_id NOT LIKE 'SMOKE_%' AND _dlt_valid_to IS NULL"
+            " WHERE patient_id NOT LIKE 'SMOKE_%' AND deleted_ts IS NULL"
             " ORDER BY patient_id LIMIT 1",
         ),
         delete_patient_id=_fetchone_str(
@@ -176,7 +176,7 @@ def _read_target_ids(conn: duckdb.DuckDBPyConnection) -> _TargetIds:
         delete_consent_patient_id=_fetchone_str(
             conn,
             "SELECT patient_id FROM raw.patient_consents"
-            " WHERE patient_id NOT LIKE 'SMOKE_%' AND _dlt_valid_to IS NULL"
+            " WHERE patient_id NOT LIKE 'SMOKE_%' AND deleted_ts IS NULL"
             " ORDER BY patient_id LIMIT 1 OFFSET 1",
         ),
     )
@@ -349,11 +349,11 @@ def _check_patients(
 def _check_patient_consents(
     conn: duckdb.DuckDBPyConnection, ids: _TargetIds
 ) -> list[MutationResult]:
-    """Assert INSERT, UPDATE, and DELETE SCD2 propagation for raw.patient_consents.
+    """Assert INSERT, UPDATE, and DELETE CDC propagation for raw.patient_consents.
 
-    On a source DELETE the prior open SCD2 row is closed (_dlt_valid_to set);
-    no new row opens. GDPR erasure runs as a separate hard-delete operation
-    and is intentionally not combined with the SCD2 resource.
+    CDC event log shape: each WAL event lands as a separate row identified by lsn.
+    DELETE events set deleted_ts IS NOT NULL; prior rows are retained (append-only log).
+    UPDATE events add a new row with lsn IS NOT NULL alongside the original snapshot row.
 
     Args:
         conn: Open DuckDB connection.
@@ -362,41 +362,30 @@ def _check_patient_consents(
     Returns:
         Three MutationResult entries (INSERT / UPDATE / DELETE).
     """
+    # INSERT: new row for SMOKE_CNS_INS must be present and not deleted.
     ins_n = _fetchone_int(
         conn,
         "SELECT count(*) FROM raw.patient_consents"
-        " WHERE patient_id='SMOKE_CNS_INS' AND _dlt_valid_to IS NULL",
+        " WHERE patient_id='SMOKE_CNS_INS' AND deleted_ts IS NULL",
     )
-    closed_n = _fetchone_int(
-        conn,
-        "SELECT count(*) FROM raw.patient_consents"
-        " WHERE patient_id=? AND _dlt_valid_to IS NOT NULL",
+    # UPDATE: a new WAL event row (lsn IS NOT NULL) must exist for the updated patient_id.
+    upd_event_rows = conn.execute(
+        "SELECT consent_research FROM raw.patient_consents"
+        " WHERE patient_id=? AND lsn IS NOT NULL AND deleted_ts IS NULL",
         [ids.first_consent_patient_id],
-    )
-    new_n = _fetchone_int(
+    ).fetchall()
+    upd_ok = len(upd_event_rows) >= 1
+    # DELETE: the WAL DELETE event must land as a row with deleted_ts IS NOT NULL.
+    del_n = _fetchone_int(
         conn,
         "SELECT count(*) FROM raw.patient_consents"
-        " WHERE patient_id=? AND _dlt_valid_to IS NULL",
-        [ids.first_consent_patient_id],
-    )
-    upd_ok = closed_n >= 1 and new_n == 1
-    closed_del_n = _fetchone_int(
-        conn,
-        "SELECT count(*) FROM raw.patient_consents"
-        " WHERE patient_id=? AND _dlt_valid_to IS NOT NULL",
+        " WHERE patient_id=? AND deleted_ts IS NOT NULL",
         [ids.delete_consent_patient_id],
     )
-    open_del_n = _fetchone_int(
-        conn,
-        "SELECT count(*) FROM raw.patient_consents"
-        " WHERE patient_id=? AND _dlt_valid_to IS NULL",
-        [ids.delete_consent_patient_id],
-    )
-    del_ok = closed_del_n >= 1 and open_del_n == 0
     return [
-        MutationResult("patient_consents", "INSERT", "_dlt_valid_to IS NULL count=1", f"count={ins_n}", _TICK if ins_n == 1 else _CROSS),
-        MutationResult("patient_consents", "UPDATE", "prior row closed + new row opened", f"closed={closed_n} new_current={new_n}", _TICK if upd_ok else _CROSS),
-        MutationResult("patient_consents", "DELETE", "prior row closed; no open row", f"closed={closed_del_n} open={open_del_n}", _TICK if del_ok else _CROSS),
+        MutationResult("patient_consents", "INSERT", "deleted_ts IS NULL count=1", f"count={ins_n}", _TICK if ins_n == 1 else _CROSS),
+        MutationResult("patient_consents", "UPDATE", "new event row (lsn IS NOT NULL)", f"new_event_rows={len(upd_event_rows)}", _TICK if upd_ok else _CROSS),
+        MutationResult("patient_consents", "DELETE", "deleted_ts IS NOT NULL count>=1", f"rows_with_deleted_ts={del_n}", _TICK if del_n >= 1 else _CROSS),
     ]
 
 

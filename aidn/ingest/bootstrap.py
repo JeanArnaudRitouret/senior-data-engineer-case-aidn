@@ -48,6 +48,8 @@ CDC_TABLES: tuple[tuple[str, str, str | None, str], ...] = (
     # patients: lsn is the CDC merge key (WAL-unique), but snapshot rows have lsn=NULL.
     # None → bootstrap uses write_disposition="append" so all 68 seed rows land intact.
     ("aidn_patients_slot", "patients", None, "aidn_patients_pub"),
+    # patient_consents: lsn is NULL on snapshot rows → append disposition for bootstrap.
+    ("aidn_patient_consents_slot", "patient_consents", None, "aidn_patient_consents_pub"),
 )
 
 

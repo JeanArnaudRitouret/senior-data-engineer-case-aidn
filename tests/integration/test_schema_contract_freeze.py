@@ -5,14 +5,10 @@ and asserts the correct rejection behaviour for that table's ingestion mechanism
 
 Rejection mechanism by table type:
 
-pg_replication (providers, appointments)
+pg_replication (providers, appointments, patient_consents)
   After ALTER TABLE, a WAL INSERT generates a RELATION message that carries the new
   schema; dlt detects the column during normalization and raises PipelineStepFailed
   wrapping SchemaEvolutionException. The exception chain names the unexpected column.
-
-sql_table full-SELECT (patient_consents)
-  dlt reflects the full schema from Postgres via SQLAlchemy; the new column appears
-  before any rows are fetched; SchemaEvolutionException is raised during normalization.
 
 sql_table incremental (patients)
   dlt's normalization never sees the extra column because the Pydantic two-tier

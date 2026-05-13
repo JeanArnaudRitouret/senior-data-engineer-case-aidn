@@ -15,7 +15,8 @@ uv.lock
 .env
 .dlt/
 
-seed/
+seed/*
+!seed/cdc_smoke.sql
 
 # Python bytecode
 __pycache__/
